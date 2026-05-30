@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { WorldState } from '@shared/types.js';
+import { TileCacheImpl } from './world/tileCache.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -62,6 +63,7 @@ export async function writeCheckpoint(state: WorldState): Promise<void> {
       })),
       vessel: state.vessel,
       companion: state.companion,
+      tiles: state.tiles.serialize(),
       chroniclePages: state.chroniclePages,
       latestSummary: state.latestSummary,
       lastChronicleGeneratedAt: state.lastChronicleGeneratedAt,
@@ -122,9 +124,11 @@ export async function loadCheckpoint(worldId: string): Promise<WorldState | null
       console.log('No checkpoint found — starting fresh.');
       return null;
     }
-    const data = doc.data() as WorldState;
-    console.log(`Checkpoint loaded — tick ${data.tick}, day ${data.day}`);
-    return data;
+    const raw = doc.data() as Omit<WorldState, 'tiles'> & { tiles: import('@shared/types.js').TileCacheData };
+    const tiles = TileCacheImpl.deserialize(raw.tiles);
+    const state = { ...raw, tiles } as WorldState;
+    console.log(`Checkpoint loaded — tick ${state.tick}, day ${state.day}`);
+    return state;
   } catch (err) {
     console.error('Failed to load checkpoint:', err);
     return null;

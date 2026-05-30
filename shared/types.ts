@@ -343,6 +343,30 @@ export interface WorldSummary {
 }
 
 // ============================================================
+// TILE CACHE
+// Sparse map of only visited/modified tiles.
+// Unvisited tiles are generated on demand from seed in tileCache.ts.
+// TileCacheData is the serializable form used for Firestore checkpoints.
+// ============================================================
+
+export interface TileCacheData {
+  seed: number
+  dirtyTiles: Record<string, WorldTile>   // key is "x_y", only modified tiles
+}
+
+// TileCache is implemented as a class in simulation/world/tileCache.ts.
+// This interface describes its public contract so shared/types.ts stays logic-free.
+export interface TileCache {
+  readonly seed: number
+  get(x: number, y: number): WorldTile
+  getIfCached(x: number, y: number): WorldTile | undefined
+  set(x: number, y: number, tile: WorldTile): void
+  isDirty(x: number, y: number): boolean
+  getDirtyTiles(): Map<string, WorldTile>
+  serialize(): TileCacheData
+}
+
+// ============================================================
 // WORLD STATE
 // Top-level container — saved to Firestore on checkpoint
 // ============================================================
@@ -356,7 +380,7 @@ export interface WorldState {
   season: Season
   ticksInCurrentSeason: number   // resets to 0 each time the season advances
   agents: Agent[]
-  tiles: WorldTile[][]      // 2D grid [x][y]
+  tiles: TileCache          // Sparse on-demand tile cache. See simulation/world/tileCache.ts
   companion: CompanionBeing
   vessel: VesselState
   eventLog: SimEvent[]      // Last 500 events

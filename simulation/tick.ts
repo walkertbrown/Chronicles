@@ -151,21 +151,16 @@ function hasNearbyThreat(agent: Agent, state: WorldState): boolean {
 function computeAverageTileFood(state: WorldState): number {
   let sum = 0;
   let count = 0;
-
-  for (const column of state.tiles) {
-    for (const tile of column) {
-      if (tile === undefined) continue;
-      if (tile.terrain === Terrain.Vessel || isVesselZone(tile.y)) continue;
-      sum += tile.resources.food.current;
-      count++;
-    }
+  for (const tile of state.tiles.getDirtyTiles().values()) {
+    if (tile.terrain === Terrain.Vessel || isVesselZone(tile.y)) continue;
+    sum += tile.resources.food.current;
+    count++;
   }
-
   return count === 0 ? 0 : sum / count;
 }
 
 function removeAgentFromTile(state: WorldState, agent: Agent): void {
-  const tile = state.tiles[agent.position.x]?.[agent.position.y];
+  const tile = state.tiles.getIfCached(agent.position.x, agent.position.y);
   if (tile === undefined) return;
   tile.occupants = tile.occupants.filter((id) => id !== agent.id);
 }

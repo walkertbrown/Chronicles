@@ -2,7 +2,7 @@
 // Vessel integrity, maintenance, helmsman landing decision, and landfall event.
 // Called once per tick from the main tick loop while the vessel is at sea.
 
-import type { Agent, Item, SimEvent, WorldState, WorldTile } from '@shared/types.js';
+import type { Agent, Item, SimEvent, TileCache, WorldState, WorldTile } from '@shared/types.js';
 import { EventType, FoundingRole, ItemType, Terrain } from '@shared/types.js';
 import { COAST_ROW, MAP_WIDTH, VESSEL_ROW_START } from './generator.js';
 
@@ -81,18 +81,19 @@ function isEdgeAdjacent(ax: number, ay: number, bx: number, by: number): boolean
 }
 
 /** All map tiles with Terrain.Vessel hull structure. */
-export function getVesselStructureTiles(tiles: WorldTile[][]): Array<{ x: number; y: number }> {
-  const structure: Array<{ x: number; y: number }> = [];
-  for (let x = 0; x < tiles.length; x++) {
-    const column = tiles[x];
-    if (!column) continue;
-    for (let y = 0; y < column.length; y++) {
-      if (column[y]?.terrain === Terrain.Vessel) {
-        structure.push({ x, y });
-      }
+export function getVesselStructureTiles(tiles: TileCache): Array<{ x: number; y: number }> {
+  const positions: Array<{ x: number; y: number }> = [];
+  for (let x = 0; x < MAP_WIDTH; x++) {
+    const column = tiles.getIfCached(x, VESSEL_ROW_START);
+    if (column?.terrain === Terrain.Vessel) {
+      positions.push({ x, y: VESSEL_ROW_START });
+    }
+    const row2 = tiles.getIfCached(x, VESSEL_ROW_START + 1);
+    if (row2?.terrain === Terrain.Vessel) {
+      positions.push({ x, y: VESSEL_ROW_START + 1 });
     }
   }
-  return structure;
+  return positions;
 }
 
 function agentOnOrAdjacentToVessel(agent: Agent, structure: Array<{ x: number; y: number }>): boolean {
@@ -103,14 +104,14 @@ function agentOnOrAdjacentToVessel(agent: Agent, structure: Array<{ x: number; y
   return false;
 }
 
-function removeAgentFromTile(tiles: WorldTile[][], agent: Agent): void {
-  const tile = tiles[agent.position.x]?.[agent.position.y];
+function removeAgentFromTile(tiles: TileCache, agent: Agent): void {
+  const tile = tiles.getIfCached(agent.position.x, agent.position.y);
   if (!tile) return;
   tile.occupants = tile.occupants.filter((id) => id !== agent.id);
 }
 
-function addAgentToTile(tiles: WorldTile[][], agent: Agent, x: number, y: number): void {
-  const tile = tiles[x]?.[y];
+function addAgentToTile(tiles: TileCache, agent: Agent, x: number, y: number): void {
+  const tile = tiles.get(x, y);
   if (!tile) return;
   if (!tile.occupants.includes(agent.id)) {
     tile.occupants.push(agent.id);
@@ -284,10 +285,10 @@ export function shouldTriggerLanding(state: WorldState): boolean {
 // ============================================================
 
 /** River mouth on the coast row, or map center if no river reaches the beach. */
-export function findVesselLandingSite(tiles: WorldTile[][]): { x: number; y: number } {
+export function findVesselLandingSite(tiles: TileCache): { x: number; y: number } {
   const riverMouthTiles: number[] = [];
   for (let x = 0; x < MAP_WIDTH; x++) {
-    if (tiles[x]?.[COAST_ROW]?.terrain === Terrain.River) {
+    if (tiles.getIfCached(x, COAST_ROW)?.terrain === Terrain.River) {
       riverMouthTiles.push(x);
     }
   }
@@ -300,10 +301,10 @@ export function findVesselLandingSite(tiles: WorldTile[][]): { x: number; y: num
   return { x: Math.floor(MAP_WIDTH / 2), y: COAST_ROW };
 }
 
-function collectCoastSlots(tiles: WorldTile[][]): Array<{ x: number; y: number }> {
+function collectCoastSlots(tiles: TileCache): Array<{ x: number; y: number }> {
   const slots: Array<{ x: number; y: number }> = [];
   for (let x = 0; x < MAP_WIDTH; x++) {
-    const tile = tiles[x]?.[COAST_ROW];
+    const tile = tiles.get(x, COAST_ROW);
     if (isCoastLandable(tile)) {
       slots.push({ x, y: COAST_ROW });
     }
@@ -311,8 +312,8 @@ function collectCoastSlots(tiles: WorldTile[][]): Array<{ x: number; y: number }
   return slots;
 }
 
-function isAgentOnVessel(agent: Agent, tiles: WorldTile[][]): boolean {
-  const tile = tiles[agent.position.x]?.[agent.position.y];
+function isAgentOnVessel(agent: Agent, tiles: TileCache): boolean {
+  const tile = tiles.getIfCached(agent.position.x, agent.position.y);
   return tile?.terrain === Terrain.Vessel || agent.position.y >= VESSEL_ROW_START;
 }
 
@@ -390,18 +391,20 @@ export function executeLanding(state: WorldState): SimEvent {
   }
 
   // Clear offshore hull tiles; mark the beached hull on the coast.
-  for (let x = 0; x < state.tiles.length; x++) {
-    const column = state.tiles[x];
-    if (!column) continue;
-    for (let y = VESSEL_ROW_START; y < column.length; y++) {
-      const tile = column[y];
-      if (tile?.terrain === Terrain.Vessel) {
-        tile.terrain = Terrain.Coast;
-      }
+  for (let x = 0; x < MAP_WIDTH; x++) {
+    const column = state.tiles.getIfCached(x, VESSEL_ROW_START);
+    if (column?.terrain === Terrain.Vessel) {
+      column.terrain = Terrain.Plain;
+      state.tiles.set(x, VESSEL_ROW_START, column);
+    }
+    const row2 = state.tiles.getIfCached(x, VESSEL_ROW_START + 1);
+    if (row2?.terrain === Terrain.Vessel) {
+      row2.terrain = Terrain.Plain;
+      state.tiles.set(x, VESSEL_ROW_START + 1, row2);
     }
   }
 
-  const beachedTile = state.tiles[landingSite.x]?.[landingSite.y];
+  const beachedTile = state.tiles.get(landingSite.x, landingSite.y);
   if (beachedTile) {
     beachedTile.terrain = Terrain.Vessel;
   }

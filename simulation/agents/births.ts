@@ -54,7 +54,7 @@ function addOccupant(
   y: number,
   agentId: string,
 ): void {
-  const tile = state.tiles[x]?.[y];
+  const tile = state.tiles.get(x, y);
   if (tile === undefined) return;
   if (!tile.occupants.includes(agentId)) {
     tile.occupants.push(agentId);

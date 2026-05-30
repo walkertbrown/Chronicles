@@ -1,89 +1,47 @@
 // simulation/world/resources.ts
-// Resource regeneration and seasonal modifiers. Called once per tick from the tick loop after actions resolve.
+// Resource regeneration per tick.
+// Only processes cached (visited) tiles — unvisited tiles have full resources
+// and don't need regeneration until an agent has been there.
 
-import type { Resource, WorldState, WorldTile } from '@shared/types.js';
+import type { Resource, TileCache, WorldState, WorldTile } from '@shared/types.js';
 import { Season, Terrain } from '@shared/types.js';
 import { TICKS_PER_SEASON } from '../agents/drives.js';
-import { MAP_HEIGHT, MAP_WIDTH, VESSEL_ROW_START } from './generator.js';
 
-const SEASON_REGEN_MULTIPLIERS: Record<Season, number> = {
-  [Season.Spring]: 1.4,
+const SEASON_REGEN_MODIFIER: Record<Season, number> = {
+  [Season.Spring]: 1.3,
   [Season.Summer]: 1.0,
-  [Season.Autumn]: 0.7,
-  [Season.Winter]: 0.2,
+  [Season.Autumn]: 0.8,
+  [Season.Winter]: 0.5,
 };
 
-const FAMINE_FOOD_THRESHOLD = 0.1;
-const FAMINE_DECAY_RATE = 0.001;
-const SPRING_FOOD_BONUS = 1.3;
+const COAST_FOOD_FLOOR = 0.05;
 
-export function getSeasonMultiplier(season: Season): number {
-  return SEASON_REGEN_MULTIPLIERS[season];
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v));
 }
 
-export function isFamineCondition(
-  resource: Resource,
-  season: Season,
-  terrain: Terrain,
-): boolean {
-  if (season !== Season.Winter) return false;
-  if (!isFoodResourceTerrain(terrain)) return false;
-  return resource.current <= FAMINE_FOOD_THRESHOLD;
+function regenResource(resource: Resource, modifier: number): void {
+  if (resource.current >= resource.max) return;
+  resource.current = clamp01(resource.current + resource.regenRate * modifier);
 }
 
-function isFoodResourceTerrain(terrain: Terrain): boolean {
-  return terrain === Terrain.Plain || terrain === Terrain.Forest;
-}
-
-function clampResource(value: number, max: number): number {
-  return Math.max(0, Math.min(max, value));
-}
-
-export function tickResource(
-  resource: Resource,
-  season: Season,
-  terrain: Terrain,
-  isFoodResource: boolean,
-): void {
-  if (isFoodResource && isFamineCondition(resource, season, terrain)) {
-    resource.current = clampResource(resource.current - FAMINE_DECAY_RATE, resource.max);
-    return;
+function applyCoastFoodFloor(tile: WorldTile): void {
+  if (tile.terrain !== Terrain.Coast) return;
+  if (tile.resources.food.current < COAST_FOOD_FLOOR) {
+    tile.resources.food.current = COAST_FOOD_FLOOR;
   }
-
-  // Coast tiles maintain a minimum food floor year round — shoreline always offers something
-  if (isFoodResource && terrain === Terrain.Coast) {
-    const coastFloor = 0.05;
-    if (resource.current < coastFloor) {
-      resource.current = clampResource(resource.current + resource.regenRate * 0.5, resource.max);
-      return;
-    }
-  }
-
-  const multiplier = getSeasonMultiplier(season);
-  const delta = resource.regenRate * multiplier;
-  resource.current = clampResource(resource.current + delta, resource.max);
 }
 
-export function tickAllResources(tiles: WorldTile[][], season: Season): void {
-  for (let x = 0; x < MAP_WIDTH; x++) {
-    for (let y = 0; y < MAP_HEIGHT; y++) {
-      if (y >= VESSEL_ROW_START) continue;
+export function tickAllResources(tiles: TileCache, season: Season): void {
+  const modifier = SEASON_REGEN_MODIFIER[season] ?? 1.0;
 
-      const tile = tiles[x]?.[y];
-      if (tile === undefined) continue;
-      if (tile.terrain === Terrain.Vessel) continue;
-
-      const foodRegenBonus = season === Season.Spring ? SPRING_FOOD_BONUS : 1.0;
-      const foodResource: Resource = season === Season.Spring
-        ? { ...tile.resources.food, regenRate: tile.resources.food.regenRate * foodRegenBonus }
-        : tile.resources.food;
-      tickResource(foodResource, season, tile.terrain, true);
-      if (season === Season.Spring) {
-        tile.resources.food.current = foodResource.current;
-      }
-      tickResource(tile.resources.water, season, tile.terrain, false);
-      tickResource(tile.resources.material, season, tile.terrain, false);
-    }
+  // Only process tiles that have been visited/cached.
+  // Unvisited tiles regenerate implicitly — they were never depleted.
+  for (const tile of tiles.getDirtyTiles().values()) {
+    regenResource(tile.resources.food, modifier);
+    regenResource(tile.resources.water, modifier);
+    regenResource(tile.resources.material, modifier);
+    applyCoastFoodFloor(tile);
   }
 }
 

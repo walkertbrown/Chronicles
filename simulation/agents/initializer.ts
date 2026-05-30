@@ -410,7 +410,7 @@ function addOccupant(
   y: number,
   agentId: string,
 ): void {
-  const tile = tiles[x]?.[y];
+  const tile = tiles.get(x, y);
   if (!tile) return;
   if (!tile.occupants.includes(agentId)) {
     tile.occupants.push(agentId);

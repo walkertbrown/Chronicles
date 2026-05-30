@@ -1,7 +1,8 @@
 // simulation/world/tiles.ts
-// Tile utility functions used throughout the simulation. No state — pure functions only.
+// Tile utility functions. All functions now accept TileCache instead of WorldTile[][].
+// getTile delegates to cache.get() which generates tiles on demand from seed.
 
-import type { Agent, WorldTile } from '@shared/types.js';
+import type { Agent, TileCache, WorldTile } from '@shared/types.js';
 import { Terrain } from '@shared/types.js';
 import { COAST_ROW, MAP_HEIGHT, MAP_WIDTH, VESSEL_ROW_START } from './generator.js';
 
@@ -13,16 +14,16 @@ const CARDINAL_OFFSETS: ReadonlyArray<readonly [number, number]> = [
 ];
 
 export function getTile(
-  tiles: WorldTile[][],
+  tiles: TileCache,
   x: number,
   y: number,
 ): WorldTile | undefined {
   if (!isInBounds(x, y)) return undefined;
-  return tiles[x]?.[y];
+  return tiles.get(x, y);
 }
 
 export function getAdjacentTiles(
-  tiles: WorldTile[][],
+  tiles: TileCache,
   x: number,
   y: number,
 ): WorldTile[] {
@@ -37,7 +38,7 @@ export function getAdjacentTiles(
 }
 
 export function getTilesInRange(
-  tiles: WorldTile[][],
+  tiles: TileCache,
   x: number,
   y: number,
   radius: number,
@@ -94,7 +95,7 @@ export function getAgentsOnTile(agents: Agent[], tile: WorldTile): Agent[] {
 }
 
 export function findNearestTerrain(
-  tiles: WorldTile[][],
+  tiles: TileCache,
   fromX: number,
   fromY: number,
   terrain: Terrain,
@@ -120,7 +121,7 @@ export function findNearestTerrain(
 }
 
 export function findBestFoodTile(
-  tiles: WorldTile[][],
+  tiles: TileCache,
   fromX: number,
   fromY: number,
   radius: number,
@@ -129,7 +130,7 @@ export function findBestFoodTile(
 }
 
 export function findBestWaterTile(
-  tiles: WorldTile[][],
+  tiles: TileCache,
   fromX: number,
   fromY: number,
   radius: number,
@@ -138,7 +139,7 @@ export function findBestWaterTile(
 }
 
 function findBestResourceTile(
-  tiles: WorldTile[][],
+  tiles: TileCache,
   fromX: number,
   fromY: number,
   radius: number,
@@ -190,4 +191,13 @@ export function isVesselZone(y: number): boolean {
 
 export function isCoast(y: number): boolean {
   return y === COAST_ROW;
+}
+
+// Helper to mark a tile dirty after mutation.
+// Call this any time you modify tile resources, occupants, artifacts etc.
+export function markTileDirty(tiles: TileCache, x: number, y: number): void {
+  const tile = tiles.getIfCached(x, y);
+  if (tile !== undefined) {
+    tiles.set(x, y, tile);
+  }
 }

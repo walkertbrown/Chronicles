@@ -226,7 +226,7 @@ export function tickAgentDrives(
   nearbyThreat: boolean,
 ): void {
   const isAtSea = isVesselZone(agent.position.y);
-  const tile = state.tiles[agent.position.x]?.[agent.position.y];
+  const tile = state.tiles.get(agent.position.x, agent.position.y);
   const tileOccupantCount = tile?.occupants.length ?? 1;
 
   tickHunger(agent, isAtSea, state);

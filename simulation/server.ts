@@ -61,36 +61,27 @@ function buildStateSnapshot(state: WorldState): {
     x: number;
     y: number;
     terrain: string;
-    food: number;
-    water: number;
+    resources: unknown;
+    occupants: string[];
   }>;
 } {
   const tiles: Array<{
     x: number;
     y: number;
     terrain: string;
-    food: number;
-    water: number;
+    resources: unknown;
+    occupants: string[];
   }> = [];
 
-  for (let x = 0; x < state.tiles.length; x++) {
-    const column = state.tiles[x];
-    if (column === undefined) continue;
-
-    for (let y = 0; y < column.length; y++) {
-      if (y >= VESSEL_ZONE_ROW) continue;
-
-      const tile = column[y];
-      if (tile === undefined) continue;
-
-      tiles.push({
-        x: tile.x,
-        y: tile.y,
-        terrain: tile.terrain,
-        food: tile.resources.food.current,
-        water: tile.resources.water.current,
-      });
-    }
+  for (const tile of state.tiles.getDirtyTiles().values()) {
+    if (tile.occupants.length === 0 && !tile.companionPresent) continue;
+    tiles.push({
+      x: tile.x,
+      y: tile.y,
+      terrain: tile.terrain,
+      resources: tile.resources,
+      occupants: tile.occupants,
+    });
   }
 
   return {

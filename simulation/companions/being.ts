@@ -5,6 +5,7 @@ import type {
   Agent,
   AgentProximityRecord,
   CompanionBeing,
+  TileCache,
   WorldState,
   WorldTile,
 } from '@shared/types.js';
@@ -90,7 +91,7 @@ function fearSpikeFromAgent(agent: Agent): number {
 }
 
 function getPassableAdjacentPositions(
-  tiles: WorldTile[][],
+  tiles: TileCache,
   x: number,
   y: number,
   vesselBeached: boolean,
@@ -157,7 +158,7 @@ function setCompanionPosition(
 }
 
 function pickRandomPassableAdjacent(
-  tiles: WorldTile[][],
+  tiles: TileCache,
   x: number,
   y: number,
   vesselBeached: boolean,
@@ -479,7 +480,7 @@ export function getCompanionProximityRecord(
 
 export function createCompanion(
   companionStart: { x: number; y: number },
-  tiles: WorldTile[][],
+  tiles: TileCache,
 ): CompanionBeing {
   const tile = getTile(tiles, companionStart.x, companionStart.y);
   if (tile !== undefined) {

@@ -2,7 +2,7 @@
 // Assembles structured state for each active chronicle thread.
 // Only what changed, only what matters — feeds the prompt builder.
 
-import type { Agent, SimEvent, WorldState, WorldTile } from '@shared/types.js';
+import type { Agent, SimEvent, TileCache, WorldState, WorldTile } from '@shared/types.js';
 import { EventType, Terrain } from '@shared/types.js';
 import { TICKS_PER_DAY, isStarving, starvationUrgency } from '../agents/drives.js';
 import { isSick, illnessSeverity } from '../agents/illness.js';
@@ -302,7 +302,7 @@ function describeSurroundingTerrain(state: WorldState, agent: Agent): string {
 }
 
 function findDirectionToTerrain(
-  tiles: WorldTile[][],
+  tiles: TileCache,
   x: number,
   y: number,
   terrain: Terrain,
