@@ -1,0 +1,694 @@
+// simulation/agents/initializer.ts
+// Spawns the founding 50 agents on the vessel and creates initial VesselState.
+// Called once at world start.
+
+import seedrandom from 'seedrandom';
+import type {
+  Agent,
+  Drives,
+  FoundingHistory,
+  Resource,
+  Skills,
+  Traits,
+  VesselState,
+} from '@shared/types.js';
+import { BondType, FoundingRole } from '@shared/types.js';
+import type { GeneratedWorld } from '../world/generator.js';
+import { createRelationship, getRelationship } from './relationships.js';
+import { createStartingVesselItems } from '../world/vessel.js';
+
+// ============================================================
+// NAME LISTS
+// ============================================================
+
+const FOUNDING_MALE_NAMES = [
+  'Drev', 'Cael', 'Bren', 'Mors', 'Tack', 'Harven', 'Kael', 'Wulf', 'Sorn', 'Dagan',
+  'Fen', 'Roth', 'Brael', 'Tavic', 'Gurn', 'Aldric', 'Jorvath', 'Cress', 'Balt', 'Harric',
+  'Stenn', 'Duvall', 'Keth', 'Rovan', 'Wace', 'Theron', 'Aldun', 'Moric', 'Sable', 'Crenn',
+  'Fael', 'Dorn', 'Harwick', 'Vael', 'Maren',
+] as const;
+
+const FOUNDING_FEMALE_NAMES = [
+  'Sela', 'Brix', 'Aldra', 'Veth', 'Corra', 'Neva', 'Thea', 'Wren', 'Sora', 'Bael',
+  'Dara', 'Ovra', 'Lira', 'Fen', 'Maren',
+] as const;
+
+const NEXT_GEN_MALE_NAMES = [
+  'Aldren', 'Bael', 'Casten', 'Davan', 'Erwick', 'Fenrath', 'Garven', 'Hael', 'Iorn', 'Jethwick',
+  'Kalder', 'Lorven', 'Maevik', 'Norrath', 'Orveth', 'Praen', 'Quelven', 'Ravick', 'Sorath', 'Taven',
+  'Urvane', 'Valdric', 'Wreth', 'Xaven', 'Yorne', 'Zaevic', 'Broven', 'Caeldric', 'Daveth', 'Elmwick',
+] as const;
+
+const NEXT_GEN_FEMALE_NAMES = [
+  'Aldris', 'Braela', 'Caelith', 'Davreth', 'Elwren', 'Fenra', 'Gaelith', 'Hevra', 'Iorna', 'Jaeveth',
+  'Kaela', 'Lorveth', 'Maevra', 'Norra', 'Orveth', 'Praela', 'Quelra', 'Raveth', 'Sorveth', 'Taevra',
+] as const;
+
+const FAMILY_NAMES = [
+  'Ashvane', 'Durnwall', 'Correth', 'Mervak', 'Stonefall', 'Halveth', 'Torcren', 'Aldmere',
+  'Brenvast', 'Worvane', 'Caelder', 'Duskwall', 'Fennick', 'Halcrow', 'Ironveth',
+] as const;
+
+// ============================================================
+// ROLE & POPULATION CONSTANTS
+// ============================================================
+
+const ROLE_COUNTS: Record<FoundingRole, number> = {
+  [FoundingRole.Explorer]: 12,
+  [FoundingRole.Outcast]: 28,
+  [FoundingRole.Leader]: 2,
+  [FoundingRole.Survivor]: 8,
+};
+
+const TOTAL_AGENTS = 50;
+const MALE_COUNT = 35;
+const FEMALE_COUNT = 15;
+const NEARLY_DIED_COUNT = 6;
+const MIN_NEARLY_DIED_OUTCASTS = 3;
+
+const TRAIT_BASE = 0.4;
+const TRAIT_VARIATION = 0.15;
+const SKILL_MIN = 0.05;
+const SKILL_MAX = 0.2;
+
+const VESSEL_WIDTH = 3;
+const VESSEL_HEIGHT = 2;
+
+const ELEVATED_PAIR_COUNT = 7;
+
+type RNG = () => number;
+type Gender = 'male' | 'female';
+
+interface AgentBlueprint {
+  role: FoundingRole;
+  gender: Gender;
+  familyName: string;
+  nearlyDiedOnCrossing: boolean;
+}
+
+// ============================================================
+// RNG HELPERS
+// ============================================================
+
+function rFloat(rng: RNG, min: number, max: number): number {
+  return min + rng() * (max - min);
+}
+
+function rInt(rng: RNG, min: number, max: number): number {
+  return Math.floor(min + rng() * (max - min + 1));
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function shuffle<T>(array: T[], rng: RNG): T[] {
+  const copy = [...array];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = copy[i];
+    const swap = copy[j];
+    if (tmp !== undefined && swap !== undefined) {
+      copy[i] = swap;
+      copy[j] = tmp;
+    }
+  }
+  return copy;
+}
+
+// ============================================================
+// TRAIT & DRIVE GENERATION
+// ============================================================
+
+function generateTraits(role: FoundingRole, rng: RNG): Traits {
+  const traits: Traits = {
+    curiosity: TRAIT_BASE,
+    courage: TRAIT_BASE,
+    nobility: TRAIT_BASE,
+    cunning: TRAIT_BASE,
+    endurance: TRAIT_BASE,
+    attraction: TRAIT_BASE,
+    aggression: TRAIT_BASE,
+    acuity: TRAIT_BASE,
+  };
+
+  switch (role) {
+    case FoundingRole.Explorer:
+      traits.curiosity += 0.2;
+      traits.courage += 0.15;
+      break;
+    case FoundingRole.Outcast:
+      traits.aggression += 0.1;
+      break;
+    case FoundingRole.Leader:
+      traits.nobility += 0.2;
+      traits.acuity += 0.15;
+      break;
+    case FoundingRole.Survivor:
+      traits.endurance += 0.2;
+      traits.courage += 0.1;
+      break;
+  }
+
+  for (const key of Object.keys(traits) as Array<keyof Traits>) {
+    traits[key] = clamp01(traits[key] + rFloat(rng, -TRAIT_VARIATION, TRAIT_VARIATION));
+  }
+
+  return traits;
+}
+
+function generateDrives(
+  role: FoundingRole,
+  nearlyDiedOnCrossing: boolean,
+): Drives {
+  if (nearlyDiedOnCrossing) {
+    return {
+      hunger: 0.3,
+      fatigue: 0.2,
+      fear: 0.35,
+      socialNeed: 0.1,
+      grief: 0.25,
+      longing: 0.05,
+    };
+  }
+
+  const drives: Drives = {
+    hunger: 0.3,
+    fatigue: 0.2,
+    fear: 0.1,
+    socialNeed: 0.1,
+    grief: 0.1,
+    longing: 0.05,
+  };
+
+  switch (role) {
+    case FoundingRole.Explorer:
+      drives.fear = clamp01(drives.fear - 0.1);
+      break;
+    case FoundingRole.Outcast:
+      drives.fear = clamp01(drives.fear + 0.15);
+      drives.grief = clamp01(drives.grief + 0.1);
+      break;
+    case FoundingRole.Survivor:
+      drives.fear = clamp01(drives.fear + 0.2);
+      break;
+    case FoundingRole.Leader:
+      drives.socialNeed = 0.15;
+      break;
+  }
+
+  return drives;
+}
+
+function generateSkills(rng: RNG): Skills {
+  return {
+    hunting: rFloat(rng, SKILL_MIN, SKILL_MAX),
+    gathering: rFloat(rng, SKILL_MIN, SKILL_MAX),
+    building: rFloat(rng, SKILL_MIN, SKILL_MAX),
+    fire: rFloat(rng, SKILL_MIN, SKILL_MAX),
+    healing: rFloat(rng, SKILL_MIN, SKILL_MAX),
+  };
+}
+
+function choseToLeave(role: FoundingRole, rng: RNG): boolean {
+  switch (role) {
+    case FoundingRole.Explorer:
+    case FoundingRole.Leader:
+      return true;
+    case FoundingRole.Outcast:
+      return false;
+    case FoundingRole.Survivor:
+      return rng() < 0.5;
+  }
+}
+
+function generateAge(role: FoundingRole, rng: RNG): number {
+  if (role === FoundingRole.Leader) {
+    return rInt(rng, 30, 55);
+  }
+  return rInt(rng, 18, 45);
+}
+
+// ============================================================
+// NAME SELECTION
+// ============================================================
+
+function namesUsedInFamily(agents: Agent[], familyName: string): Set<string> {
+  const used = new Set<string>();
+  for (const agent of agents) {
+    if (agent.familyName === familyName) {
+      used.add(agent.name);
+    }
+  }
+  return used;
+}
+
+function pickNameFromPools(
+  primaryPool: readonly string[],
+  fallbackPool: readonly string[],
+  usedInFamily: Set<string>,
+  rng: RNG,
+): string {
+  const availablePrimary = primaryPool.filter((name) => !usedInFamily.has(name));
+  if (availablePrimary.length > 0) {
+    const index = Math.floor(rng() * availablePrimary.length);
+    const name = availablePrimary[index];
+    if (name !== undefined) return name;
+  }
+
+  const availableFallback = fallbackPool.filter((name) => !usedInFamily.has(name));
+  if (availableFallback.length > 0) {
+    const index = Math.floor(rng() * availableFallback.length);
+    const name = availableFallback[index];
+    if (name !== undefined) return name;
+  }
+
+  const combined = [...primaryPool, ...fallbackPool];
+  const index = Math.floor(rng() * combined.length);
+  return combined[index] ?? 'Unknown';
+}
+
+function pickFoundingName(
+  gender: Gender,
+  familyName: string,
+  usedByFamily: Map<string, Set<string>>,
+  rng: RNG,
+): string {
+  const usedInFamily = usedByFamily.get(familyName) ?? new Set<string>();
+  const primaryPool = gender === 'male' ? FOUNDING_MALE_NAMES : FOUNDING_FEMALE_NAMES;
+  const fallbackPool = gender === 'male' ? FOUNDING_FEMALE_NAMES : FOUNDING_MALE_NAMES;
+  const name = pickNameFromPools(primaryPool, fallbackPool, usedInFamily, rng);
+
+  if (!usedByFamily.has(familyName)) {
+    usedByFamily.set(familyName, new Set());
+  }
+  usedByFamily.get(familyName)?.add(name);
+
+  return name;
+}
+
+// ============================================================
+// BLUEPRINT ASSEMBLY
+// ============================================================
+
+function buildRoleList(rng: RNG): FoundingRole[] {
+  const roles: FoundingRole[] = [];
+  for (const [role, count] of Object.entries(ROLE_COUNTS) as Array<[FoundingRole, number]>) {
+    for (let i = 0; i < count; i++) {
+      roles.push(role);
+    }
+  }
+  return shuffle(roles, rng);
+}
+
+function buildGenderList(rng: RNG): Gender[] {
+  const genders: Gender[] = [
+    ...Array.from({ length: MALE_COUNT }, () => 'male' as const),
+    ...Array.from({ length: FEMALE_COUNT }, () => 'female' as const),
+  ];
+  return shuffle(genders, rng);
+}
+
+function assignNearlyDiedFlags(roles: FoundingRole[], rng: RNG): boolean[] {
+  const flags = Array.from({ length: TOTAL_AGENTS }, () => false);
+  const outcastIndices: number[] = [];
+  const otherIndices: number[] = [];
+
+  for (let i = 0; i < roles.length; i++) {
+    if (roles[i] === FoundingRole.Outcast) {
+      outcastIndices.push(i);
+    } else {
+      otherIndices.push(i);
+    }
+  }
+
+  const shuffledOutcasts = shuffle(outcastIndices, rng);
+  const shuffledOthers = shuffle(otherIndices, rng);
+
+  const outcastPicks = Math.min(MIN_NEARLY_DIED_OUTCASTS, shuffledOutcasts.length);
+  for (let i = 0; i < outcastPicks; i++) {
+    const index = shuffledOutcasts[i];
+    if (index !== undefined) flags[index] = true;
+  }
+
+  let assigned = outcastPicks;
+  for (const index of shuffledOutcasts.slice(outcastPicks)) {
+    if (assigned >= NEARLY_DIED_COUNT) break;
+    if (index !== undefined) {
+      flags[index] = true;
+      assigned++;
+    }
+  }
+
+  for (const index of shuffledOthers) {
+    if (assigned >= NEARLY_DIED_COUNT) break;
+    if (index !== undefined) {
+      flags[index] = true;
+      assigned++;
+    }
+  }
+
+  return flags;
+}
+
+function buildBlueprints(rng: RNG): AgentBlueprint[] {
+  const roles = buildRoleList(rng);
+  const genders = buildGenderList(rng);
+  const nearlyDiedFlags = assignNearlyDiedFlags(roles, rng);
+
+  return roles.map((role, index) => ({
+    role,
+    gender: genders[index] ?? 'male',
+    familyName: FAMILY_NAMES[rInt(rng, 0, FAMILY_NAMES.length - 1)] ?? FAMILY_NAMES[0],
+    nearlyDiedOnCrossing: nearlyDiedFlags[index] ?? false,
+  }));
+}
+
+// ============================================================
+// VESSEL POSITIONING
+// ============================================================
+
+function getVesselTilePositions(vesselStart: { x: number; y: number }): Array<{ x: number; y: number }> {
+  const positions: Array<{ x: number; y: number }> = [];
+  for (let dy = 0; dy < VESSEL_HEIGHT; dy++) {
+    for (let dx = 0; dx < VESSEL_WIDTH; dx++) {
+      positions.push({
+        x: vesselStart.x + dx,
+        y: vesselStart.y + dy,
+      });
+    }
+  }
+  return positions;
+}
+
+function distributeAgentPositions(
+  agentCount: number,
+  vesselStart: { x: number; y: number },
+): Array<{ x: number; y: number }> {
+  const tiles = getVesselTilePositions(vesselStart);
+  const positions: Array<{ x: number; y: number }> = [];
+  const basePerTile = Math.floor(agentCount / tiles.length);
+  let remainder = agentCount % tiles.length;
+
+  for (const tile of tiles) {
+    let count = basePerTile;
+    if (remainder > 0) {
+      count++;
+      remainder--;
+    }
+    for (let i = 0; i < count; i++) {
+      positions.push({ x: tile.x, y: tile.y });
+    }
+  }
+
+  return positions;
+}
+
+function addOccupant(
+  tiles: GeneratedWorld['tiles'],
+  x: number,
+  y: number,
+  agentId: string,
+): void {
+  const tile = tiles[x]?.[y];
+  if (!tile) return;
+  if (!tile.occupants.includes(agentId)) {
+    tile.occupants.push(agentId);
+  }
+}
+
+// ============================================================
+// HELMSMAN
+// ============================================================
+
+function rolePriority(role: FoundingRole): number {
+  switch (role) {
+    case FoundingRole.Leader:
+      return 2;
+    case FoundingRole.Explorer:
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function selectHelmsman(agents: Agent[]): Agent {
+  let best = agents[0];
+  if (!best) {
+    throw new Error('Cannot select helmsman from empty agent list');
+  }
+
+  for (const agent of agents) {
+    const agentScore = agent.traits.acuity + agent.traits.endurance;
+    const bestScore = best.traits.acuity + best.traits.endurance;
+
+    if (agentScore > bestScore) {
+      best = agent;
+      continue;
+    }
+
+    if (agentScore < bestScore) continue;
+
+    const agentRole = agent.foundingHistory?.role;
+    const bestRole = best.foundingHistory?.role;
+    const agentPriority = agentRole ? rolePriority(agentRole) : 0;
+    const bestPriority = bestRole ? rolePriority(bestRole) : 0;
+
+    if (agentPriority > bestPriority) {
+      best = agent;
+    }
+  }
+
+  return best;
+}
+
+function setMutualTrust(
+  agentA: Agent,
+  agentB: Agent,
+  trust: number,
+  bond?: BondType,
+): void {
+  const relA = getRelationship(agentA, agentB.id);
+  const relB = getRelationship(agentB, agentA.id);
+  if (relA !== undefined) {
+    relA.trust = trust;
+    if (bond !== undefined) relA.bond = bond;
+  }
+  if (relB !== undefined) {
+    relB.trust = trust;
+    if (bond !== undefined) relB.bond = bond;
+  }
+}
+
+function initializeRelationships(
+  agents: Agent[],
+  helmsmanId: string,
+  rng: RNG,
+): void {
+  // Step 1 — baseline trust for every pair
+  for (const agent of agents) {
+    for (const other of agents) {
+      if (other.id === agent.id) continue;
+      agent.relationships.push(
+        createRelationship(other.id, rFloat(rng, 0.1, 0.2), BondType.None),
+      );
+    }
+  }
+
+  const helmsman = agents.find((agent) => agent.id === helmsmanId);
+  if (helmsman === undefined) return;
+
+  // Step 2 — helmsman knows everyone slightly better
+  for (const agent of agents) {
+    if (agent.id === helmsmanId) continue;
+    const trust = rFloat(rng, 0.2, 0.35);
+    setMutualTrust(agent, helmsman, trust);
+  }
+
+  // Step 3 — same family starts as kin with elevated trust
+  for (let i = 0; i < agents.length; i++) {
+    for (let j = i + 1; j < agents.length; j++) {
+      const agentA = agents[i];
+      const agentB = agents[j];
+      if (agentA === undefined || agentB === undefined) continue;
+      if (agentA.familyName !== agentB.familyName) continue;
+
+      const trust = rFloat(rng, 0.3, 0.5);
+      setMutualTrust(agentA, agentB, trust, BondType.Kin);
+    }
+  }
+
+  // Step 4 — nearly died agents bond with their implicit helper
+  for (const agent of agents) {
+    if (agent.foundingHistory?.nearlyDiedOnCrossing !== true) continue;
+
+    let helper: Agent | undefined;
+    let highestNobility = -1;
+    for (const other of agents) {
+      if (other.id === agent.id || !other.alive) continue;
+      if (other.traits.nobility > highestNobility) {
+        highestNobility = other.traits.nobility;
+        helper = other;
+      }
+    }
+
+    if (helper !== undefined) {
+      const trust = rFloat(rng, 0.35, 0.55);
+      setMutualTrust(agent, helper, trust);
+    }
+  }
+
+  // Step 5 — random crossing bonds that formed at sea
+  const eligiblePairs: Array<[Agent, Agent]> = [];
+  for (let i = 0; i < agents.length; i++) {
+    for (let j = i + 1; j < agents.length; j++) {
+      const agentA = agents[i];
+      const agentB = agents[j];
+      if (agentA === undefined || agentB === undefined) continue;
+
+      const relA = getRelationship(agentA, agentB.id);
+      const relB = getRelationship(agentB, agentA.id);
+      if (
+        relA !== undefined &&
+        relB !== undefined &&
+        relA.trust < 0.3 &&
+        relB.trust < 0.3
+      ) {
+        eligiblePairs.push([agentA, agentB]);
+      }
+    }
+  }
+
+  const shuffledPairs = shuffle(eligiblePairs, rng);
+  const pairCount = Math.min(ELEVATED_PAIR_COUNT, shuffledPairs.length);
+  for (let i = 0; i < pairCount; i++) {
+    const pair = shuffledPairs[i];
+    if (pair === undefined) continue;
+    const [agentA, agentB] = pair;
+    const trust = rFloat(rng, 0.3, 0.5);
+    setMutualTrust(agentA, agentB, trust);
+  }
+}
+
+// ============================================================
+// CHILD NAMING
+// ============================================================
+
+export function generateChildName(
+  _motherId: string,
+  _fatherId: string,
+  gender: Gender,
+  existingAgents: Agent[],
+  rng: () => number,
+): { name: string; familyName: string } {
+  const mother = existingAgents.find((a) => a.id === _motherId);
+  const familyName = mother?.familyName ?? FAMILY_NAMES[0];
+
+  const usedInFamily = namesUsedInFamily(existingAgents, familyName);
+  const primaryPool = gender === 'male' ? NEXT_GEN_MALE_NAMES : NEXT_GEN_FEMALE_NAMES;
+  const fallbackPool = gender === 'male' ? FOUNDING_MALE_NAMES : FOUNDING_FEMALE_NAMES;
+
+  const name = pickNameFromPools(primaryPool, fallbackPool, usedInFamily, rng);
+
+  return { name, familyName };
+}
+
+function computeStartingHealth(age: number): number {
+  if (age < 40) return 1.0;
+  if (age < 55) return Math.max(0.1, 1.0 - (age - 39) * 0.008);
+  return Math.max(0.1, 1.0 - (age - 39) * 0.012);
+}
+
+// ============================================================
+// MAIN EXPORT
+// ============================================================
+
+export function initializeAgents(
+  world: GeneratedWorld,
+  seed: number,
+): { agents: Agent[]; vessel: VesselState } {
+  const rng = seedrandom(`agents_${seed}`) as RNG;
+  const blueprints = buildBlueprints(rng);
+  const positions = distributeAgentPositions(TOTAL_AGENTS, world.vesselStart);
+  const usedNamesByFamily = new Map<string, Set<string>>();
+
+  const agents: Agent[] = blueprints.map((blueprint, index) => {
+    const name = pickFoundingName(
+      blueprint.gender,
+      blueprint.familyName,
+      usedNamesByFamily,
+      rng,
+    );
+
+    const foundingHistory: FoundingHistory = {
+      role: blueprint.role,
+      ledTheCrossing: false,
+      nearlyDiedOnCrossing: blueprint.nearlyDiedOnCrossing,
+      choseToLeave: choseToLeave(blueprint.role, rng),
+    };
+
+    const position = positions[index] ?? world.vesselStart;
+    const agentId = `agent_${index}`;
+    const age = generateAge(blueprint.role, rng);
+
+    addOccupant(world.tiles, position.x, position.y, agentId);
+
+    return {
+      id: agentId,
+      name,
+      familyName: blueprint.familyName,
+      gender: blueprint.gender,
+      age,
+      healthScore: computeStartingHealth(age),
+      generation: 0,
+      alive: true,
+      position,
+      drives: generateDrives(blueprint.role, blueprint.nearlyDiedOnCrossing),
+      traits: generateTraits(blueprint.role, rng),
+      skills: generateSkills(rng),
+      relationships: [],
+      lineage: {
+        motherId: null,
+        fatherId: null,
+        children: [],
+      },
+      foundingHistory,
+      companionId: null,
+      significanceScore: 0,
+      chronicleThreadActive: false,
+      lastChroniclePageMention: null,
+      recentEvents: [],
+      starvationTick: null,
+      starvationSurvivalTicks: null,
+      lastAteAtTick: null,
+      lastDrankAtTick: null,
+      discoveredTileIds: [],
+      illnessState: null,
+      animalAttackTick: null,
+    };
+  });
+
+  const helmsman = selectHelmsman(agents);
+  if (helmsman.foundingHistory) {
+    helmsman.foundingHistory.ledTheCrossing = true;
+  }
+
+  initializeRelationships(agents, helmsman.id, rng);
+
+  const vesselResources: { food: Resource; water: Resource } = {
+    food: { current: 0.48, max: 0.6, regenRate: 0 },
+    water: { current: 0.4, max: 0.5, regenRate: 0 },
+  };
+
+  const vessel: VesselState = {
+    id: 'vessel_founding',
+    position: world.vesselStart,
+    integrity: 1,
+    beached: false,
+    resources: vesselResources,
+    items: createStartingVesselItems(),
+    helmsmanId: helmsman.id,
+  };
+
+  return { agents, vessel };
+}

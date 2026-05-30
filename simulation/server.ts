@@ -1,0 +1,244 @@
+import http from 'node:http';
+import type {
+  ChronicleEntry,
+  Drives,
+  IllnessState,
+  Skills,
+  Traits,
+  WorldState,
+} from '@shared/types.js';
+import { EventType } from '@shared/types.js';
+
+const PORT = 3001;
+const VESSEL_ZONE_ROW = 30;
+
+function setJsonHeaders(res: http.ServerResponse): void {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET');
+  res.setHeader('Content-Type', 'application/json');
+}
+
+function sendJson(res: http.ServerResponse, statusCode: number, body: unknown): void {
+  setJsonHeaders(res);
+  res.writeHead(statusCode);
+  res.end(JSON.stringify(body));
+}
+
+function alivePopulation(state: WorldState): number {
+  return state.agents.filter((agent) => agent.alive).length;
+}
+
+function buildStateSnapshot(state: WorldState): {
+  tick: number;
+  day: number;
+  year: number;
+  season: string;
+  population: number;
+  vessel: { beached: boolean; position: { x: number; y: number } };
+  agents: Array<{
+    id: string;
+    name: string;
+    familyName: string;
+    role: string;
+    alive: boolean;
+    position: { x: number; y: number };
+    age: number;
+    gender: string;
+    significanceScore: number;
+    chronicleThreadActive: boolean;
+    drives: Drives;
+    traits: Traits;
+    skills: Skills;
+    illnessState: IllnessState | null;
+    relationships: Array<{ agentId: string; trust: number; bond: string }>;
+  }>;
+  companion: {
+    position: { x: number; y: number };
+    alive: boolean;
+    bondedAgentId: string | null;
+  };
+  tiles: Array<{
+    x: number;
+    y: number;
+    terrain: string;
+    food: number;
+    water: number;
+  }>;
+} {
+  const tiles: Array<{
+    x: number;
+    y: number;
+    terrain: string;
+    food: number;
+    water: number;
+  }> = [];
+
+  for (let x = 0; x < state.tiles.length; x++) {
+    const column = state.tiles[x];
+    if (column === undefined) continue;
+
+    for (let y = 0; y < column.length; y++) {
+      if (y >= VESSEL_ZONE_ROW) continue;
+
+      const tile = column[y];
+      if (tile === undefined) continue;
+
+      tiles.push({
+        x: tile.x,
+        y: tile.y,
+        terrain: tile.terrain,
+        food: tile.resources.food.current,
+        water: tile.resources.water.current,
+      });
+    }
+  }
+
+  return {
+    tick: state.tick,
+    day: state.day,
+    year: state.year,
+    season: state.season,
+    population: alivePopulation(state),
+    vessel: {
+      beached: state.vessel.beached,
+      position: { ...state.vessel.position },
+    },
+    agents: state.agents.map((agent) => ({
+      id: agent.id,
+      name: agent.name,
+      familyName: agent.familyName,
+      role: agent.foundingHistory?.role ?? 'unknown',
+      alive: agent.alive,
+      position: { ...agent.position },
+      age: agent.age,
+      gender: agent.gender,
+      significanceScore: agent.significanceScore,
+      chronicleThreadActive: agent.chronicleThreadActive,
+      drives: agent.drives,
+      traits: agent.traits,
+      skills: agent.skills,
+      illnessState: agent.illnessState,
+      relationships: agent.relationships.map((rel) => ({
+        agentId: rel.agentId,
+        trust: rel.trust,
+        bond: rel.bond,
+      })),
+    })),
+    companion: {
+      position: { ...state.companion.position },
+      alive: state.companion.alive,
+      bondedAgentId: state.companion.bondedAgentId,
+    },
+    tiles,
+  };
+}
+
+function buildDeathsSnapshot(state: WorldState) {
+  const deadAgents = state.agents.filter((a) => !a.alive);
+
+  return deadAgents.map((agent) => {
+    // Find the death event for this agent
+    const deathEvent = [...state.eventLog]
+      .reverse()
+      .find(
+        (e) => e.type === EventType.Death && e.involvedAgents.includes(agent.id),
+      );
+
+    // Resolve surviving family by name
+    const survivingFamily: Array<{
+      id: string;
+      name: string;
+      familyName: string;
+      relationship: string;
+    }> = [];
+
+    const addIfAlive = (id: string | null, relationship: string) => {
+      if (id === null) return;
+      const found = state.agents.find((a) => a.id === id && a.alive);
+      if (found !== undefined) {
+        survivingFamily.push({
+          id: found.id,
+          name: found.name,
+          familyName: found.familyName,
+          relationship,
+        });
+      }
+    };
+
+    addIfAlive(agent.lineage.motherId, 'mother');
+    addIfAlive(agent.lineage.fatherId, 'father');
+    for (const childId of agent.lineage.children) {
+      addIfAlive(childId, 'child');
+    }
+
+    return {
+      id: agent.id,
+      name: agent.name,
+      familyName: agent.familyName,
+      role: agent.foundingHistory?.role ?? 'unknown',
+      gender: agent.gender,
+      age: agent.age,
+      generation: agent.generation,
+      significanceScore: agent.significanceScore,
+      drives: agent.drives,
+      traits: agent.traits,
+      skills: agent.skills,
+      illnessState: agent.illnessState,
+      relationships: agent.relationships.map((rel) => ({
+        agentId: rel.agentId,
+        trust: rel.trust,
+        bond: rel.bond,
+      })),
+      deathCause: deathEvent?.description ?? 'Cause unknown',
+      dayOfDeath: deathEvent?.day ?? state.day,
+      survivingFamily,
+    };
+  });
+}
+
+export function startServer(getState: () => WorldState): void {
+  const server = http.createServer((req, res) => {
+    const pathname = req.url?.split('?')[0] ?? '';
+
+    if (req.method !== 'GET') {
+      sendJson(res, 404, { error: 'Not found' });
+      return;
+    }
+
+    const state = getState();
+
+    switch (pathname) {
+      case '/health':
+        sendJson(res, 200, {
+          ticking: true,
+          tick: state.tick,
+          day: state.day,
+          population: alivePopulation(state),
+        });
+        return;
+
+      case '/state':
+        sendJson(res, 200, buildStateSnapshot(state));
+        return;
+
+      case '/chronicle':
+        sendJson(res, 200, {
+          pages: state.chroniclePages,
+        });
+        return;
+
+      case '/deaths':
+        sendJson(res, 200, {
+          deaths: buildDeathsSnapshot(state),
+        });
+        return;
+
+      default:
+        sendJson(res, 404, { error: 'Not found' });
+    }
+  });
+
+  server.listen(PORT, () => {
+    console.log(`Simulation server listening on http://localhost:${PORT}`);
+  });
+}
