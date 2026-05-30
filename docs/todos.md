@@ -1,68 +1,61 @@
 # Living World — Todo List
-### Current as of Session 4
+### Current as of Session 5
 
 ---
 
 ## What Is Built and Working
 
 ### Simulation Core (Complete)
-- `shared/types.ts` — all types, interfaces, enums
-- `simulation/world/` — generator, vessel, tiles, resources all complete
-- `simulation/agents/` — drives, traits, relationships, actions, significance, illness, births, hunt, fish all complete
-- `simulation/agents/drives.ts` — starvation: min 288 ticks, base 480, max 720; hunger depletion 0.001/tick; grief spike 0.04, radius 3, fade 0.001; fear threshold to beat hunger 0.85
-- `simulation/world/vessel.ts` — landing threshold 0.55; all agents land at one coast tile
-- `simulation/world/resources.ts` — coast food floor 0.05; spring bonus 1.3x; seasonal hunt/fish modifiers
-- `simulation/events/log.ts` — death cause (starvation/illness/age/animal); animal attack system
-- `simulation/tick.ts` — full tick loop
-- `simulation/index.ts` — RUN_MODE=production; TARGET_TICKS Infinity; TICK_INTERVAL_MS 450000; chronicle re-enabled (non-blocking); summary non-blocking
+- `shared/types.ts` — all types, interfaces, enums; TileCache interface and TileCacheData for serialization
+- `simulation/world/tileCache.ts` — TileCacheImpl: sparse on-demand tile generation from seed, dirty tile tracking, serialize/deserialize for Firestore
+- `simulation/world/generator.ts` — 3000x1500 world constants; generateWorld returns TileCacheImpl pre-warmed with starting zone
+- `simulation/world/tiles.ts` — all utilities updated to TileCache; markTileDirty helper
+- `simulation/world/resources.ts` — tickAllResources only processes dirty (visited) tiles
+- `simulation/world/vessel.ts` — all tile accesses updated to TileCache
+- `simulation/agents/` — drives, births, significance, illness, initializer, actions all updated; search radii scaled for larger world
+- `simulation/companions/being.ts` — updated to TileCache
+- `simulation/chronicle/packager.ts` — updated to TileCache
+- `simulation/tick.ts` — updated to TileCache; computeAverageTileFood uses dirty tiles
+- `simulation/server.ts` — serves only occupied tiles to frontend
+- `simulation/firebase.ts` — checkpoint serializes only dirty tiles; loadCheckpoint deserializes back to TileCacheImpl
+- `simulation/index.ts` — checkpoint load/resume on startup; SIGINT writes final checkpoint
 - `simulation/chronicle/` — complete; nine craft principles + M.I.C.R.O.; three-way opening; non-blocking
 - `simulation/summary/` — complete; Gemini 2.5 Flash; hourly production; non-blocking
-- `simulation/server.ts` — HTTP on port 3001; /state /chronicle /health /deaths; CORS
 
 ### Web Frontend (Complete for Sample)
-- `web/app/world/page.tsx` — SVG map; zoom/pan; vessel; agent dots on landing; click-to-inspect; chronicle thread highlights; companion diamond; roster panel with Living/Dead tabs; agent detail with drives/skills/traits; dead agent detail with cause/surviving family
-- `web/app/chronicle/page.tsx` — fetches /chronicle; latest page full width; archive collapsed below; polls every 30s; empty state handled
+- `web/app/world/page.tsx` — SVG map; zoom/pan; vessel; agent dots; roster panel with Living/Dead tabs; agent detail with drives/skills/traits; dead agent detail with cause/surviving family
+- `web/app/chronicle/page.tsx` — fetches /chronicle; latest page full width; archive collapsed; polls every 30s
 - `web/lib/api.ts` — fetchWorldState, fetchChronicle, fetchDeaths
 - `web/lib/types.ts` — frontend type mirrors including DeadAgentSnapshot
 - `web/public/map.svg` — Azgaar export; physical map + watercolor style
 
+### Infrastructure
+- Firebase project: Chronicles (chronicles-14b34)
+- Firestore: checkpoint writes every 50 ticks, resume on startup
+- Realtime Database: live agent positions every tick
+- Firebase Admin SDK installed in simulation
+- Service account: firebase-service-account.json (gitignored)
+
 ### Design
-- `docs/spec-v2.md` — v2.1; full Conduit/story design; Old Religion, the Unbound, ascension mechanic, dark bond, voting as gods all documented
+- `docs/spec-v2.md` — v2.1; full Conduit/story design documented
 
 ### Environment
 - `simulation/.env` — RUN_MODE=production, ANTHROPIC_API_KEY, GEMINI_API_KEY set
 
 ---
 
-## Phase 2 — Firebase, Persistence, Cloud Run
+## Phase 2 — Cloud Run and Web Deployment
 
-This is the current phase. Goal: get the simulation off your Mac and running persistently in the cloud.
-
-### 2.0 — Pre-Firebase Simulation Fixes
-- [ ] **Dedicated death log** — add `deathLog: DeathRecord[]` to `WorldState` in `shared/types.ts`. Written at time of death, never truncated. `/deaths` endpoint reads from this instead of scanning `eventLog`. Prevents death causes being lost as event log rolls over.
-- [ ] **Event log cap** — currently 500. Raise before long runs. Phase 3 concern.
-
-### 2.1 — Firebase Setup
-- [ ] Create Firebase project
-- [ ] Enable Firestore, Realtime Database, Firebase Hosting
-- [ ] Add `worldId` to all documents (already in types — just needs to flow through)
-- [ ] Add Firebase Admin SDK to simulation, Firebase client SDK to web
-
-### 2.2 — Checkpoint Writes (Firestore)
-- [ ] Every 50 ticks write full world state to Firestore
-- [ ] On startup: check Firestore for existing state, load and continue if found
-- [ ] Chronicle pages written to Firestore on generation
-
-### 2.3 — Realtime Database (Live View)
-- [ ] Write agent positions and drives to Realtime Database every tick
-- [ ] Frontend subscribes to Realtime Database instead of polling /state
+This is the current phase.
 
 ### 2.4 — Cloud Run Deployment
-- [ ] Dockerfile for simulation (Node.js, compiled dist, env vars from Secret Manager)
+- [ ] Upgrade Firebase project to Blaze plan (required for Cloud Run)
+- [ ] Install Google Cloud CLI (gcloud) on Mac
+- [ ] Create Dockerfile for simulation
+- [ ] Store all API keys in Google Secret Manager
+- [ ] Deploy to Cloud Run with min 1 instance always running
+- [ ] Graceful shutdown already implemented (SIGINT writes checkpoint)
 - [ ] Health check endpoint already exists (/health)
-- [ ] Graceful shutdown — write checkpoint before exit
-- [ ] Deploy to Cloud Run with min 1 instance (always running)
-- [ ] All API keys in Google Secret Manager, not hardcoded
 
 ### 2.5 — Web Deployment
 - [ ] Deploy web frontend to Vercel
@@ -73,21 +66,22 @@ This is the current phase. Goal: get the simulation off your Mac and running per
 
 ## Deferred — Polish Before Public Launch
 
-- [ ] **tileCoords full re-extraction** — 282 empty cells filled by nearest neighbor; increase scan density to 4px grid
+- [ ] **tileCoords full re-extraction** — needs re-extraction for 3000x1500 grid mapped to SVG
 - [ ] **Map zoom starts on landing area** — INITIAL_VIEWBOX should start zoomed on southern coast
 - [ ] **Transition duration RUN_MODE-aware** — dev 180ms, prod 405000ms
 - [ ] **Chronicle page empty state** — same message whether server is down or chronicle not yet started
-- [ ] **Conduit system** — full implementation per spec-v2.1; bonding triggers, dark bond, artifact imprinting, significance multiplier
+- [ ] **Conduit system** — full implementation per spec-v2.1
+- [ ] **Old Firestore checkpoint** — delete the old WorldTile[][] checkpoint from Firestore console before production run
 
 ---
 
 ## Phase 3 — Observation Run
 
-After Cloud Run stable. Let simulation run for two real weeks. Collect chronicle exemplars. Tune simulation parameters. Watch for:
+After Cloud Run stable. Let simulation run for two real weeks. Watch for:
 - Death rate (lost 17/50 in 41 days last run — may still be too fast)
-- Agent inland movement (were staying at coast y=27-29)
+- Agent inland movement
 - Pair bond formation and birth system
-- Chronicle quality — update prompt exemplars with best lines
+- Chronicle quality
 
 ---
 
@@ -100,25 +94,26 @@ After Cloud Run stable. Let simulation run for two real weeks. Collect chronicle
 - [ ] Search — Algolia
 - [ ] Multi-world
 - [ ] Old World simulation
-- [ ] Fine-tuning pipeline
-- [ ] Shelter, fire, hunting skill, crafting systems
+- [ ] Shelter, fire, crafting systems
 - [ ] Artifact interaction and written fragments
-- [ ] Thread handoff narration
+- [ ] World map layer — inter-region travel when population expands
+- [ ] Dedicated death log (deathLog: DeathRecord[] on WorldState)
+- [ ] Event log cap — currently 500, raise before long runs
 
 ---
 
 ## Key Design Decisions
 
-- **Vessel beaches, stays permanently** — agents land at one coast tile together
-- **Agents hidden at sea** — vessel icon only; dots appear on landing
-- **30x30 grid = small landing zone** — full Azgaar map is the continent
-- **Chronicle fires at landing** — non-blocking; ~8-15 real hours in production
+- **World grid: 3000x1500 tiles** — each tile ~500 feet; on-demand generation from seed; only visited/modified tiles in memory
+- **Sparse TileCache** — unvisited tiles generated deterministically from seed, never stored; only dirty tiles saved to Firestore
+- **Vessel beaches permanently** — agents land at one coast tile together
+- **Chronicle fires at landing** — ~8-15 real hours in production
 - **Summary Gemini 2.5 Flash** — hourly; non-blocking
-- **RUN_MODE=production** — 450 seconds/tick; ~1 sim week per real week
-- **Conduits** — 75 fixed population, lemur-like with luminescence, not tracked unless bonded, bonding system designed in spec-v2.1
-- **The Unbound** — ancient civilization that ascended; left Conduits as guardians; ascension device still on map
-- **Audience = new gods** — voting mechanic is divine influence, not game mechanics
+- **RUN_MODE=production** — 450 seconds/tick
+- **Conduits** — 75 fixed, lemur-like with luminescence, not tracked unless bonded
+- **The Unbound** — ancient civilization that ascended; Conduits left as guardians
+- **Audience = new gods** — voting mechanic is divine influence
 
 ---
 
-*Updated Session 4. Phase 2 is next: Firebase, persistence, Cloud Run.*
+*Updated Session 5. Phase 2 continues: Cloud Run and Vercel deployment next.*

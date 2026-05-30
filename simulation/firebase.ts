@@ -11,10 +11,20 @@ let initialized = false;
 
 function getApp(): admin.app.App {
   if (!initialized) {
-    const serviceAccountPath = resolve(__dirname, '../../firebase-service-account.json');
-    const serviceAccount = JSON.parse(readFileSync(serviceAccountPath, 'utf-8'));
+    let serviceAccount: object;
+
+    const envJson = process.env['FIREBASE_SERVICE_ACCOUNT'];
+    if (envJson !== undefined && envJson.length > 0) {
+      // Cloud Run — service account JSON passed as environment variable
+      serviceAccount = JSON.parse(envJson);
+    } else {
+      // Local development — read from file
+      const serviceAccountPath = resolve(__dirname, '../../firebase-service-account.json');
+      serviceAccount = JSON.parse(readFileSync(serviceAccountPath, 'utf-8'));
+    }
+
     admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
+      credential: admin.credential.cert(serviceAccount as admin.ServiceAccount),
       databaseURL: 'https://chronicles-14b34-default-rtdb.firebaseio.com',
     });
     initialized = true;

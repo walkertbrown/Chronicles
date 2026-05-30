@@ -1,0 +1,8 @@
+simulation/node_modules
+simulation/dist
+simulation/.env
+simulation/firebase-service-account.json
+*.log
+.git
+web/node_modules
+web/.next
