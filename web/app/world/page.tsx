@@ -586,6 +586,19 @@ function LivingDetail({
       <p style={{ fontFamily: f.serif, fontStyle: 'italic', fontSize: 15, color: c.textDim, margin: '0 0 4px' }}>
         {agent.role} of the {agent.familyName} · {agent.age} years · {agent.gender}
       </p>
+      {agent.currentAction && (
+        <p
+          style={{
+            fontFamily: 'EB Garamond, serif',
+            fontStyle: 'italic',
+            fontSize: '15px',
+            color: 'var(--color-text-secondary)',
+            margin: '6px 0 16px',
+          }}
+        >
+          {agent.currentAction}
+        </p>
+      )}
       {agent.illnessState !== null && agent.illnessState.sick && (
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
           <span style={{ width: 7, height: 7, background: c.accent2, display: 'inline-block' }} />

@@ -2,8 +2,13 @@
 // Makes the Anthropic API call and returns the chronicle prose.
 
 import Anthropic from '@anthropic-ai/sdk';
-import type { WorldState } from '@shared/types.js';
+import type { ChronicleEntry, WorldState } from '@shared/types.js';
+import { Season } from '@shared/types.js';
 import { TICKS_PER_DAY } from '../agents/drives.js';
+import {
+  isChronicleCollectionEmpty,
+  writeChronicleDocument,
+} from '../firebase.js';
 import { packThreads } from './packager.js';
 import { buildChroniclePrompt } from './prompt.js';
 
@@ -16,6 +21,79 @@ const MAX_TOKENS = 1024;
 const REVISION_MAX_TOKENS = 1500;
 const SYSTEM_PROMPT =
   'You are the voice of an ancient chronicle. Write only what the data tells you. Do not invent.';
+
+const PROLOGUE_BODY = `We left because the gods were wrong.
+
+Not absent. Not silent. Wrong — in the specific, structural way that a thing built to keep people small will always be wrong, no matter how many centuries it spends calling itself sacred. The gods of the old world had an answer for everything, and every answer pointed the same direction: stay. Obey. Be grateful for the ceiling we have placed above you, for without it you would be lost.
+
+Some of us were cast out. Some chose to leave. The water does not care about the distinction, and after enough weeks at sea, neither do we.
+
+There is a story the priests told — one of their favorites, trotted out whenever someone asked the wrong question or stood up too straight. A civilization that came before us. The Unbound, they were called, which was meant to sound like a warning and somehow always sounded, to certain ears, like an invitation. People who reached for what the gods kept for themselves. Who vanished. Who were destroyed, or transformed, or — and this is the part the priests never finished — simply left.
+
+No bones. No ruin worth the name. No monument to foolishness.
+
+Just: they were here, and then they were not.
+
+I have spent this crossing thinking about that silence. The deliberate incompleteness of it. A cautionary tale with no body, no grave, no satisfying wreckage. The old gods were many things, but they were not careless. If the Unbound had been destroyed, there would have been evidence. Priests love evidence. They build temples to it.
+
+The silence was intentional. Which means the ending they wouldn't tell us was one they couldn't afford for us to hear.
+
+There are fifty of us on this vessel. We are cold. Several are sick. The stores ran out two days ago and we have been making a collective, unspoken decision not to discuss this. We have been at sea long enough that the old arguments feel like arguments someone else had, in a room we no longer live in. The gods feel far away. For the first time in my life, that does not frighten me.
+
+It feels, if I am honest, like breathing.
+
+Whatever is ahead — and something is ahead, the birds have been telling us so for three days now — we chose it. Every person on this vessel made a choice, whether the choice was made for them first or not. We are moving toward something rather than simply away. That is not nothing. After a life in a world that wanted us stationary, it is very nearly everything.
+
+I do not know what we will find.
+
+I know what we left, and I know why, and I know that the story the priests told about the people who came before us ended wrong — not in destruction, but in something the old gods had no word for.
+
+We are going to find out what it was.
+
+Year 1 — three days from the coast, or so the birds suggest.`;
+
+function buildPrologueEntry(worldId: string, createdAt: string): ChronicleEntry & { id: string; order: number } {
+  return {
+    id: 'prologue',
+    worldId,
+    title: 'From the Record — First Page',
+    subtitle:
+      'Set down before landfall, in the hand of Rovan Halveth, aboard the vessel whose name we have stopped saying',
+    body: PROLOGUE_BODY,
+    fullPage: PROLOGUE_BODY,
+    day: 0,
+    year: 1,
+    season: Season.Winter,
+    threads: [],
+    significantEvents: [],
+    generatedAt: createdAt,
+    createdAt,
+    realDate: createdAt,
+    isPrologue: true,
+    order: 0,
+  };
+}
+
+async function ensurePrologueSeeded(state: WorldState): Promise<void> {
+  if (!(await isChronicleCollectionEmpty(state.worldId))) {
+    return;
+  }
+
+  const createdAt = new Date().toISOString();
+  const prologue = buildPrologueEntry(state.worldId, createdAt);
+  await writeChronicleDocument(state.worldId, prologue);
+
+  if (!state.chroniclePages.some((p) => p.id === 'prologue' || p.isPrologue)) {
+    state.chroniclePages.unshift(prologue);
+  }
+
+  console.log('Chronicle prologue written to Firestore.');
+}
+
+function nextChronicleOrder(state: WorldState): number {
+  const orders = state.chroniclePages.map((p) => p.order ?? 0);
+  return Math.max(0, ...orders) + 1;
+}
 
 function extractTextFromResponse(
   content: Anthropic.Message['content'],
@@ -69,6 +147,8 @@ export async function generateChronicle(
   const prompt = buildChroniclePrompt(packages, state.vessel.beached);
 
   try {
+    await ensurePrologueSeeded(state);
+
     const client = new Anthropic({ apiKey });
     const response = await client.messages.create({
       model: CHRONICLE_MODEL,
@@ -119,10 +199,15 @@ not yet made. End in motion — but end.`;
       generatedAt: new Date().toISOString(),
     };
 
-    state.chroniclePages.push({
+    const generatedAt = new Date().toISOString();
+    const pageId = `day-${state.day}-${generatedAt}`;
+    const order = nextChronicleOrder(state);
+
+    const entry: ChronicleEntry & { id: string; order: number } = {
+      id: pageId,
       worldId: state.worldId,
       day: state.day,
-      realDate: new Date().toISOString(),
+      realDate: generatedAt,
       season: state.season,
       year: state.year,
       threads: packages.map((p) => ({
@@ -134,8 +219,12 @@ not yet made. End in motion — but end.`;
       significantEvents: packages.flatMap((p) =>
         p.primaryAgent.recentEvents.map((e) => e.tick.toString()),
       ),
-      generatedAt: new Date().toISOString(),
-    });
+      generatedAt,
+      order,
+    };
+
+    await writeChronicleDocument(state.worldId, entry);
+    state.chroniclePages.push(entry);
 
     state.lastChronicleGeneratedAt = new Date().toISOString();
 

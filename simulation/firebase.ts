@@ -2,7 +2,7 @@ import admin from 'firebase-admin';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { WorldState } from '@shared/types.js';
+import type { ChronicleEntry, WorldState } from '@shared/types.js';
 import { TileCacheImpl } from './world/tileCache.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -150,4 +150,57 @@ export async function loadCheckpoint(worldId: string): Promise<WorldState | null
     console.error('Failed to load checkpoint:', err);
     return null;
   }
+}
+
+function chronicleCollection(worldId: string): admin.firestore.CollectionReference {
+  const db = admin.firestore(getApp());
+  return db.collection('worlds').doc(worldId).collection('chronicle');
+}
+
+export async function isChronicleCollectionEmpty(worldId: string): Promise<boolean> {
+  try {
+    const snap = await chronicleCollection(worldId).limit(1).get();
+    return snap.empty;
+  } catch (err) {
+    console.error('Chronicle collection check failed:', err);
+    return true;
+  }
+}
+
+export async function writeChronicleDocument(
+  worldId: string,
+  page: ChronicleEntry & { id: string; order: number },
+): Promise<void> {
+  try {
+    await chronicleCollection(worldId).doc(page.id).set(page);
+  } catch (err) {
+    console.error(`Chronicle write failed for ${page.id}:`, err);
+    throw err;
+  }
+}
+
+export async function fetchChroniclePages(worldId: string): Promise<ChronicleEntry[]> {
+  try {
+    const snap = await chronicleCollection(worldId).get();
+    return snap.docs.map((doc) => doc.data() as ChronicleEntry);
+  } catch (err) {
+    console.error('Chronicle fetch failed:', err);
+    return [];
+  }
+}
+
+export async function getChroniclePages(state: WorldState): Promise<ChronicleEntry[]> {
+  const fromFirestore = await fetchChroniclePages(state.worldId);
+  const merged = new Map<string, ChronicleEntry>();
+
+  for (const page of state.chroniclePages) {
+    merged.set(page.id ?? `${page.day}-${page.generatedAt}`, page);
+  }
+  for (const page of fromFirestore) {
+    merged.set(page.id ?? `${page.day}-${page.generatedAt}`, page);
+  }
+
+  return [...merged.values()].sort(
+    (a, b) => (a.order ?? a.day) - (b.order ?? b.day),
+  );
 }

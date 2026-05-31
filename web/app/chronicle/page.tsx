@@ -13,6 +13,74 @@ function dateline(p: ChronicleEntry): string {
   return `${p.season.toUpperCase()} · YEAR ${p.year} · DAY ${p.day}`;
 }
 
+function pageLabel(p: ChronicleEntry): string {
+  if (p.title !== undefined && p.title.length > 0) return p.title;
+  return dateline(p);
+}
+
+function sortPages(pages: ChronicleEntry[]): ChronicleEntry[] {
+  return [...pages].sort((a, b) => (a.order ?? a.day) - (b.order ?? b.day));
+}
+
+function PageHeader({ page }: { page: ChronicleEntry }) {
+  if (page.title === undefined && page.subtitle === undefined) return null;
+  return (
+    <div style={{ marginBottom: page.body !== undefined || page.fullPage.length > 0 ? 18 : 0 }}>
+      {page.title !== undefined && (
+        <h2
+          style={{
+            fontFamily: f.display,
+            fontWeight: 600,
+            fontSize: 'clamp(22px, 4vw, 28px)',
+            color: c.paperText,
+            margin: 0,
+            letterSpacing: '0.06em',
+            lineHeight: 1.2,
+          }}
+        >
+          {page.title}
+        </h2>
+      )}
+      {page.subtitle !== undefined && (
+        <p
+          style={{
+            fontFamily: f.serif,
+            fontStyle: 'italic',
+            fontSize: 16,
+            lineHeight: 1.55,
+            color: c.paperDim,
+            margin: page.title !== undefined ? '10px 0 0' : 0,
+          }}
+        >
+          {page.subtitle}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function PageBody({ page, dropCap }: { page: ChronicleEntry; dropCap: boolean }) {
+  const text = page.body ?? page.fullPage;
+  if (page.threads.length > 0) {
+    return (
+      <>
+        {page.threads.map((thread, i) => (
+          <div key={`${thread.primaryAgentId}-${i}`}>
+            {i > 0 && <PaperOrnament />}
+            <div style={{ marginBottom: 10 }}>
+              <span style={{ fontFamily: f.mono, fontSize: 10, letterSpacing: '0.2em', textTransform: 'uppercase', color: c.paperDim }}>
+                The {thread.familyName} thread
+              </span>
+            </div>
+            <ProseBlock text={thread.prose} dropCap={dropCap && i === 0} />
+          </div>
+        ))}
+      </>
+    );
+  }
+  return <ProseBlock text={text} dropCap={dropCap} />;
+}
+
 function ProseBlock({ text, dropCap }: { text: string; dropCap: boolean }) {
   const paras = text.split(/\n\n+/).filter((p) => p.trim());
   if (paras.length === 0) {
@@ -63,7 +131,7 @@ export default function ChroniclePage() {
     const poll = async () => {
       try {
         const data = await fetchChronicle();
-        if (active) setPages(data.pages);
+        if (active) setPages(sortPages(data.pages));
       } catch {
         // Simulation server may not be running yet
       }
@@ -95,47 +163,36 @@ export default function ChroniclePage() {
     );
   }
 
-  const latest = pages[pages.length - 1]!;
-  const archive = pages.slice(0, -1).reverse();
+  const sorted = sortPages(pages);
+  const latest = sorted[sorted.length - 1]!;
+  const archive = sorted.slice(0, -1).reverse();
+  const latestHeadline = latest.isPrologue ? latest.title ?? pageLabel(latest) : dateline(latest);
 
   return (
     <div style={{ background: c.base, color: c.text, minHeight: '100vh' }}>
       {/* masthead */}
-      <Masthead current="chronicle" dateline={dateline(latest)} sticky />
+      <Masthead current="chronicle" dateline={latest.isPrologue ? (latest.subtitle ?? pageLabel(latest)) : dateline(latest)} sticky />
 
       <main style={{ maxWidth: 760, margin: '0 auto', padding: 'clamp(28px, 5vw, 64px) 24px 80px' }}>
         {/* book head */}
         <div style={{ textAlign: 'center', marginBottom: 'clamp(28px,5vw,52px)' }}>
           <Kicker color={c.accent}>The Chronicle of Aethel</Kicker>
           <h1 style={{ fontFamily: f.display, fontWeight: 600, fontSize: 'clamp(34px,5vw,52px)', color: c.text, margin: '12px 0 0', letterSpacing: '0.08em' }}>
-            {dateline(latest)}
+            {latestHeadline}
           </h1>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, marginTop: 16 }}>
             <span style={{ width: 40, height: 1, background: c.line }} />
-            <Kicker>A page set this morning, unauthored</Kicker>
+            <Kicker>{latest.isPrologue ? 'The record before landfall' : 'A page set this morning, unauthored'}</Kicker>
             <span style={{ width: 40, height: 1, background: c.line }} />
           </div>
         </div>
 
         {/* the latest leaf */}
         <Leaf>
-          {latest.threads.length > 0 ? (
-            latest.threads.map((thread, i) => (
-              <div key={`${thread.primaryAgentId}-${i}`}>
-                {i > 0 && <PaperOrnament />}
-                <div style={{ marginBottom: 10 }}>
-                  <span style={{ fontFamily: f.mono, fontSize: 10, letterSpacing: '0.2em', textTransform: 'uppercase', color: c.paperDim }}>
-                    The {thread.familyName} thread
-                  </span>
-                </div>
-                <ProseBlock text={thread.prose} dropCap />
-              </div>
-            ))
-          ) : (
-            <ProseBlock text={latest.fullPage} dropCap />
-          )}
+          <PageHeader page={latest} />
+          <PageBody page={latest} dropCap />
 
-          {latest.significantEvents.length > 0 && (
+          {!latest.isPrologue && latest.significantEvents.length > 0 && (
             <div style={{ marginTop: 26, paddingTop: 18, borderTop: `1px solid ${c.paperRule}` }}>
               <span style={{ fontFamily: f.mono, fontSize: 10, letterSpacing: '0.2em', textTransform: 'uppercase', color: c.paperDim }}>This day it is written</span>
               <ul style={{ margin: '10px 0 0', padding: 0, listStyle: 'none' }}>
@@ -174,16 +231,16 @@ export default function ChroniclePage() {
               {archive.map((p, i) => {
                 const isOpen = open.has(i);
                 return (
-                  <div key={`${p.generatedAt}-${p.day}`} style={{ borderBottom: `1px solid ${c.line}` }}>
+                  <div key={p.id ?? `${p.generatedAt}-${p.day}`} style={{ borderBottom: `1px solid ${c.line}` }}>
                     <button
                       type="button"
                       onClick={() => toggle(i)}
                       style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '14px 2px' }}
                     >
-                      <span style={{ fontFamily: f.display, fontSize: 21, color: isOpen ? c.accent : c.text }}>{dateline(p)}</span>
+                      <span style={{ fontFamily: f.display, fontSize: 21, color: isOpen ? c.accent : c.text }}>{pageLabel(p)}</span>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <Kicker>
-                          {p.threads.length} thread{p.threads.length === 1 ? '' : 's'}
+                          {p.isPrologue ? 'prologue' : `${p.threads.length} thread${p.threads.length === 1 ? '' : 's'}`}
                         </Kicker>
                         <span style={{ color: c.accent, fontFamily: f.mono, fontSize: 12 }}>{isOpen ? '–' : '+'}</span>
                       </span>
@@ -191,7 +248,8 @@ export default function ChroniclePage() {
                     {isOpen && (
                       <div style={{ padding: '0 2px 22px' }}>
                         <Leaf light>
-                          <ProseBlock text={p.fullPage} dropCap={false} />
+                          <PageHeader page={p} />
+                          <PageBody page={p} dropCap={false} />
                         </Leaf>
                       </div>
                     )}

@@ -1,6 +1,5 @@
 import http from 'node:http';
 import type {
-  ChronicleEntry,
   Drives,
   IllnessState,
   Skills,
@@ -8,6 +7,7 @@ import type {
   WorldState,
 } from '@shared/types.js';
 import { EventType } from '@shared/types.js';
+import { getChroniclePages } from './firebase.js';
 
 const PORT = 3001;
 const VESSEL_ZONE_ROW = 30;
@@ -224,9 +224,17 @@ export function startServer(getState: () => WorldState): void {
         return;
 
       case '/chronicle':
-        sendJson(res, 200, {
-          pages: state.chroniclePages,
-        });
+        void getChroniclePages(state)
+          .then((pages) => {
+            sendJson(res, 200, { pages });
+          })
+          .catch(() => {
+            sendJson(res, 200, {
+              pages: [...state.chroniclePages].sort(
+                (a, b) => (a.order ?? a.day) - (b.order ?? b.day),
+              ),
+            });
+          });
         return;
 
       case '/deaths':

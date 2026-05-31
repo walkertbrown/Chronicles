@@ -314,6 +314,13 @@ export interface ChronicleEntry {
   fullPage: string          // Assembled complete page
   significantEvents: string[] // Event ids that fed this page
   generatedAt: string       // ISO timestamp
+  id?: string
+  title?: string
+  subtitle?: string
+  body?: string
+  createdAt?: string
+  isPrologue?: boolean
+  order?: number
 }
 
 // ============================================================

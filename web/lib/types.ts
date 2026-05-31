@@ -120,6 +120,13 @@ export interface ChronicleEntry {
   fullPage: string;
   significantEvents: string[];
   generatedAt: string;
+  id?: string;
+  title?: string;
+  subtitle?: string;
+  body?: string;
+  createdAt?: string;
+  isPrologue?: boolean;
+  order?: number;
 }
 
 export interface WorldSnapshot {
