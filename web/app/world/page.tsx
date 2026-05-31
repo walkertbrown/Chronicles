@@ -55,6 +55,62 @@ function clientToSvg(svg: SVGSVGElement, clientX: number, clientY: number, vb: M
 // ── reader intervention ──────────────────────────────────────────────────────
 // VOTE data + VotePanel live in lib/oracle.tsx (shared with the chronicle page).
 
+function HoursBrief({ worldNow, open, onToggle }: { worldNow: string; open: boolean; onToggle: () => void }) {
+  return (
+    <div style={{ flexShrink: 0, background: c.frame, borderBottom: `1px solid ${c.line}` }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          width: '100%',
+          textAlign: 'left',
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          padding: '10px clamp(16px, 4vw, 22px)',
+        }}
+      >
+        <span
+          style={{
+            fontFamily: f.display,
+            fontSize: 'clamp(11px, 2.4vw, 13px)',
+            fontWeight: 600,
+            letterSpacing: '0.18em',
+            color: c.accent,
+          }}
+        >
+          THE HOUR&apos;S BRIEF
+        </span>
+        <span
+          aria-hidden
+          style={{
+            fontFamily: f.mono,
+            fontSize: 10,
+            color: c.textFaint,
+            display: 'inline-block',
+            transition: 'transform .18s',
+            transform: open ? 'rotate(180deg)' : 'none',
+          }}
+        >
+          ▾
+        </span>
+      </button>
+      {open && (
+        <div style={{ padding: '0 clamp(16px, 4vw, 22px) 14px' }}>
+          <p style={{ fontFamily: f.serif, fontSize: 15, lineHeight: 1.65, color: c.textDim, margin: 0, textWrap: 'pretty' }}>
+            {worldNow}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function WorldPage() {
   const vp = useViewport();
   const [worldSnapshot, setWorldSnapshot] = useState<WorldSnapshot | null>(null);
@@ -64,6 +120,7 @@ export default function WorldPage() {
   const [rosterTab, setRosterTab] = useState<'living' | 'dead'>('living');
   const [viewBox, setViewBox] = useState<MapViewBox>(INITIAL_VIEWBOX);
   const [voteOpen, setVoteOpen] = useState(false);
+  const [briefOpen, setBriefOpen] = useState(false);
 
   // mobile Eye layout — default Toggle; Stack/Sheet switchable from the menu.
   const [mobileAtlas, setMobileAtlas] = useState<AtlasMode>('toggle');
@@ -440,6 +497,14 @@ export default function WorldPage() {
   return (
     <div style={{ background: c.base, color: c.text, height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <Masthead current="world" dateline={dateline} menuExtra={atlasSwitcher} />
+
+      {worldSnapshot?.latestSummary != null && (
+        <HoursBrief
+          worldNow={worldSnapshot.latestSummary.worldNow}
+          open={briefOpen}
+          onToggle={() => setBriefOpen((o) => !o)}
+        />
+      )}
 
       {vp.isMobile ? (
         <AtlasMobile

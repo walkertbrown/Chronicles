@@ -65,6 +65,7 @@ function buildStateSnapshot(state: WorldState): {
     resources: unknown;
     occupants: string[];
   }>;
+  latestSummary: { worldNow: string } | null;
 } {
   const tiles: Array<{
     x: number;
@@ -130,6 +131,7 @@ function buildStateSnapshot(state: WorldState): {
         bondType: c.bondType,
       })),
     tiles,
+    latestSummary: state.latestSummary !== null ? { worldNow: state.latestSummary.worldNow } : null,
   };
 }
 

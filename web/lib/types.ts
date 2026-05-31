@@ -132,4 +132,5 @@ export interface WorldSnapshot {
   agents: AgentSnapshot[];
   conduits: BondedConduitSnapshot[];
   tiles: TileSnapshot[];
+  latestSummary?: { worldNow: string } | null;
 }
