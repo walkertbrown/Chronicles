@@ -5,7 +5,6 @@
 //
 // Fonts (Cinzel / EB Garamond / IBM Plex Mono) are loaded via @import in globals.css.
 
-import { useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 
 export const oracle = {
@@ -172,79 +171,5 @@ export function GiltRings({ size = 120 }: { size?: number }) {
         );
       })}
     </svg>
-  );
-}
-
-// ── reader intervention (front-end placeholder) ──────────────────────────────
-// Curated, one-choice-per-cycle. Wire to a /vote endpoint when the backend
-// exposes one; tallies/turnout here are illustrative only.
-export const VOTE = {
-  cycle: 12,
-  closesIn: '6h 12m',
-  turnout: 4187,
-  prompt: 'The camp is divided on whether to follow the curious inland toward the broken towers, or hold the shore.',
-  options: [
-    { id: 'inland', title: 'Let the curious go inland', body: 'A small party follows toward the ruins. They may find the first of the artifacts. They may not return.' },
-    { id: 'hold', title: 'Hold the shore another season', body: 'The camp consolidates. Safety, for now — and the towers wait, as they have always waited.' },
-    { id: 'abstain', title: 'Do not intervene', body: 'Let it decide for itself. The gods watch and stay their hand.' },
-  ],
-};
-
-export function VotePanel({ onClose }: { onClose: () => void }) {
-  const [cast, setCast] = useState<string | null>(null);
-  return (
-    <div
-      onClick={onClose}
-      style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(8,6,4,0.62)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(560px, 94vw)', maxHeight: '90%', overflowY: 'auto', background: c.frame, border: `1px solid ${c.lineStrong}`, boxShadow: '0 24px 80px rgba(0,0,0,0.6)', padding: '34px 38px 30px', position: 'relative' }}
-      >
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          style={{ position: 'absolute', top: 16, right: 18, background: 'none', border: 'none', cursor: 'pointer', color: c.textFaint, fontFamily: f.serif, fontSize: 22, lineHeight: 1 }}
-        >
-          ×
-        </button>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: 22 }}>
-          <Seal size={58} glyph="◉" />
-          <div style={{ marginTop: 14 }}>
-            <Kicker color={c.accent}>You are watching · Cycle {VOTE.cycle}</Kicker>
-          </div>
-          <h2 style={{ fontFamily: f.display, fontWeight: 600, fontSize: 30, color: c.text, margin: '8px 0 0', letterSpacing: '0.06em' }}>Your Influence</h2>
-        </div>
-        <p style={{ fontFamily: f.serif, fontSize: 17, lineHeight: 1.6, color: c.textDim, textAlign: 'center', margin: '0 0 24px', fontStyle: 'italic' }}>{VOTE.prompt}</p>
-        <div style={{ height: 1, background: c.line, marginBottom: 20 }} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {VOTE.options.map((o) => {
-            const chosen = cast === o.id;
-            return (
-              <button
-                key={o.id}
-                type="button"
-                disabled={cast !== null}
-                onClick={() => setCast(o.id)}
-                style={{ position: 'relative', textAlign: 'left', cursor: cast !== null ? 'default' : 'pointer', background: c.panel, border: `1px solid ${chosen ? c.accent : c.line}`, padding: '13px 15px', opacity: cast !== null && !chosen ? 0.6 : 1 }}
-              >
-                <span style={{ display: 'block', fontFamily: f.display, fontSize: 19, color: c.text }}>{o.title}</span>
-                <span style={{ display: 'block', fontFamily: f.serif, fontSize: 14, color: c.textDim, marginTop: 4, lineHeight: 1.45 }}>{o.body}</span>
-              </button>
-            );
-          })}
-        </div>
-        <div style={{ marginTop: 22, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-          <Kicker>{VOTE.turnout.toLocaleString()} watching · closes in {VOTE.closesIn}</Kicker>
-          {cast !== null && <Kicker color={c.accent}>Your influence is recorded</Kicker>}
-        </div>
-        {cast !== null && (
-          <p style={{ fontFamily: f.serif, fontStyle: 'italic', fontSize: 15, color: c.textDim, textAlign: 'center', margin: '16px 0 0', lineHeight: 1.55 }}>
-            It is done. The world does not know your name. It will only feel the weather change.
-          </p>
-        )}
-      </div>
-    </div>
   );
 }

@@ -7,7 +7,7 @@ import { fetchWorldState, fetchDeaths } from '../../lib/api';
 import type { AgentSnapshot, DeadAgentSnapshot, WorldSnapshot } from '../../lib/types';
 // tileToSvg is the canonical tile→SVG mapping; imported, never re-implemented here.
 import { tileToSvg, SVG_W, SVG_H } from '../../lib/tileCoords';
-import { oracle, EngravedBar, Kicker, SectionHead, Seal, GiltRings, VotePanel } from '../../lib/oracle';
+import { oracle, EngravedBar, Kicker, SectionHead, Seal, GiltRings } from '../../lib/oracle';
 
 const c = oracle.c;
 const f = oracle.fonts;
@@ -52,7 +52,7 @@ function clientToSvg(svg: SVGSVGElement, clientX: number, clientY: number, vb: M
 }
 
 // ── reader intervention ──────────────────────────────────────────────────────
-// VOTE data + VotePanel live in lib/oracle.tsx (shared with the chronicle page).
+// Vote mechanic deferred — will be implemented when the backend exposes a /vote endpoint.
 
 export default function WorldPage() {
   const [worldSnapshot, setWorldSnapshot] = useState<WorldSnapshot | null>(null);
@@ -61,7 +61,6 @@ export default function WorldPage() {
   const [selectedDeadAgent, setSelectedDeadAgent] = useState<DeadAgentSnapshot | null>(null);
   const [rosterTab, setRosterTab] = useState<'living' | 'dead'>('living');
   const [viewBox, setViewBox] = useState<MapViewBox>(INITIAL_VIEWBOX);
-  const [voteOpen, setVoteOpen] = useState(false);
 
   const mapSvgRef = useRef<SVGSVGElement>(null);
   const panRef = useRef<{ x: number; y: number; vb: MapViewBox } | null>(null);
@@ -434,13 +433,10 @@ export default function WorldPage() {
               setRosterTab={setRosterTab}
               onSelectAgent={setSelectedAgent}
               onSelectDead={setSelectedDeadAgent}
-              onOpenVote={() => setVoteOpen(true)}
             />
           )}
         </aside>
       </div>
-
-      {voteOpen && <VotePanel onClose={() => setVoteOpen(false)} />}
     </div>
   );
 }
@@ -619,7 +615,7 @@ function DeadDetail({
   );
 }
 
-// ── roster (living / fallen + bonded conduits + the breath) ──────────────────
+// ── roster (living / fallen + bonded conduits) ───────────────────────────────
 function Roster({
   worldSnapshot,
   deadAgents,
@@ -627,7 +623,6 @@ function Roster({
   setRosterTab,
   onSelectAgent,
   onSelectDead,
-  onOpenVote,
 }: {
   worldSnapshot: WorldSnapshot | null;
   deadAgents: DeadAgentSnapshot[];
@@ -635,7 +630,6 @@ function Roster({
   setRosterTab: (t: 'living' | 'dead') => void;
   onSelectAgent: (a: AgentSnapshot) => void;
   onSelectDead: (a: DeadAgentSnapshot) => void;
-  onOpenVote: () => void;
 }) {
   return (
     <div>
@@ -774,20 +768,6 @@ function Roster({
           )}
         </div>
       )}
-
-      {/* the breath / intervention */}
-      <button
-        type="button"
-        onClick={onOpenVote}
-        style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', cursor: 'pointer', marginTop: 22, padding: 14, background: c.accentSoft, border: `1px solid ${c.lineStrong}` }}
-      >
-        <Seal size={40} glyph="◉" subtle />
-        <span style={{ flex: 1 }}>
-          <Kicker color={c.accent}>You are watching</Kicker>
-          <span style={{ display: 'block', fontFamily: f.display, fontSize: 18, color: c.text, marginTop: 2 }}>Your Influence</span>
-        </span>
-        <span style={{ fontFamily: f.mono, fontSize: 16, color: c.accent }}>→</span>
-      </button>
     </div>
   );
 }
