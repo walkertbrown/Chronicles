@@ -363,7 +363,7 @@ export default function WorldPage() {
         </div>
 
         {worldSnapshot === null && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
             <Kicker>Consulting the simulation…</Kicker>
           </div>
         )}
@@ -806,12 +806,12 @@ function Roster({
       <button
         type="button"
         onClick={onOpenVote}
-        style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', cursor: 'pointer', marginTop: 22, padding: 14, background: c.accentSoft, border: `1px solid ${c.lineStrong}` }}
+        style={{ display: 'none', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', cursor: 'pointer', marginTop: 22, padding: 14, background: c.accentSoft, border: `1px solid ${c.lineStrong}` }}
       >
         <Seal size={40} glyph="◉" subtle />
         <span style={{ flex: 1 }}>
           <Kicker color={c.accent}>You are watching</Kicker>
-          <span style={{ display: 'block', fontFamily: f.display, fontSize: 18, color: c.text, marginTop: 2 }}>The Breath</span>
+          <span style={{ display: 'block', fontFamily: f.display, fontSize: 18, color: c.text, marginTop: 2 }}>Divinity Choice</span>
         </span>
         <span style={{ fontFamily: f.mono, fontSize: 16, color: c.accent }}>→</span>
       </button>

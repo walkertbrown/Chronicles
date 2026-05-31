@@ -1,7 +1,7 @@
 'use client';
 
 // Shared viewport hook — ported from the prototype's useMeasuredWidth.
-// `useViewport()` tracks window width (SSR-safe: defaults to desktop until
+// `useViewport()` tracks window width (SSR-safe: defaults to mobile until
 // mounted) and derives the breakpoint booleans the Oracle pages use.
 // `useElementWidth(ref)` is the generalized element-measuring variant.
 
@@ -27,9 +27,8 @@ function fromWidth(w: number): Viewport {
 }
 
 export function useViewport(): Viewport {
-  // Default to a desktop width so server render + first paint match desktop,
-  // then correct on mount. Avoids a hydration mismatch flashing mobile chrome.
-  const [w, setW] = useState<number>(1280);
+  // Default to 0 so the first paint uses mobile layout, then correct on mount.
+  const [w, setW] = useState<number>(0);
   useEffect(() => {
     const apply = () => setW(window.innerWidth);
     apply();

@@ -175,7 +175,7 @@ export default function Threshold() {
 
   const emblem = vp.isMobile ? 132 : vp.isTablet ? 164 : 196;
   // Size the nowrap wordmark from the measured width so it never overflows.
-  const titleSize = Math.max(22, Math.min(58, Math.round(vp.w * 0.072)));
+  const titleSize = Math.max(22, Math.min(vp.isMobile ? 32 : 58, Math.round(vp.w * 0.072)));
   const pop = snap?.population ?? null;
   const dateline =
     snap !== null
@@ -224,7 +224,7 @@ export default function Threshold() {
           <Kicker color={c.accent} style={{ fontSize: 'clamp(10px,1.6vw,12px)', letterSpacing: '0.32em' }}>
             You are watching
           </Kicker>
-          <h1 style={{ fontFamily: f.display, fontWeight: 700, color: c.text, fontSize: titleSize, letterSpacing: '0.06em', lineHeight: 1.1, whiteSpace: 'nowrap', margin: '14px 0 0' }}>
+          <h1 style={{ fontFamily: f.display, fontWeight: 700, color: c.text, fontSize: titleSize, letterSpacing: '0.06em', lineHeight: 1.1, margin: '14px 0 0' }}>
             THE CHRONICLE
           </h1>
           <p style={{ fontFamily: f.serif, fontStyle: 'italic', color: c.textDim, fontSize: 'clamp(17px, 3vw, 25px)', margin: '12px 0 0', letterSpacing: '0.02em' }}>
@@ -240,7 +240,7 @@ export default function Threshold() {
           only watch the world turn, read what its days set down, and — once each cycle — breathe upon it.
         </p>
 
-        <div style={{ display: 'flex', flexDirection: vp.isMobile ? 'column' : 'row', gap: 14, width: '100%', maxWidth: 600, marginTop: 6 }}>
+        <div style={{ display: 'flex', flexDirection: vp.isMobile ? 'column' : 'row', gap: 14, width: '100%', maxWidth: 600, marginTop: 6, boxSizing: 'border-box', minWidth: 0 }}>
           <Portal primary href="/world" kicker="The world, surveyed" title="The Eye" sub="Walk the plate · find the watched" />
           <Portal href="/chronicle" kicker="The days, as written" title="The Chronicle" sub="Read the page set this morning" />
         </div>

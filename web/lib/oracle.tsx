@@ -6,7 +6,7 @@
 // Fonts (Cinzel / EB Garamond / IBM Plex Mono) are loaded via @import in globals.css.
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { useViewport } from './useViewport';
 
@@ -216,7 +216,7 @@ export function VotePanel({ onClose }: { onClose: () => void }) {
           <div style={{ marginTop: 14 }}>
             <Kicker color={c.accent}>You are watching · Cycle {VOTE.cycle}</Kicker>
           </div>
-          <h2 style={{ fontFamily: f.display, fontWeight: 600, fontSize: 30, color: c.text, margin: '8px 0 0', letterSpacing: '0.06em' }}>The Breath</h2>
+          <h2 style={{ fontFamily: f.display, fontWeight: 600, fontSize: 30, color: c.text, margin: '8px 0 0', letterSpacing: '0.06em', display: 'none' }}>Divinity Choice</h2>
         </div>
         <p style={{ fontFamily: f.serif, fontSize: 17, lineHeight: 1.6, color: c.textDim, textAlign: 'center', margin: '0 0 24px', fontStyle: 'italic' }}>{VOTE.prompt}</p>
         <div style={{ height: 1, background: c.line, marginBottom: 20 }} />
@@ -338,6 +338,10 @@ export function Masthead({
   const vp = useViewport();
   const [menu, setMenu] = useState(false);
 
+  useEffect(() => {
+    setMenu(false);
+  }, [vp.isMobile]);
+
   const wordmark = (size: number) => (
     <Link
       href="/"
@@ -380,6 +384,7 @@ export function Masthead({
         <button
           type="button"
           aria-label="Menu"
+          aria-expanded={menu}
           onClick={() => setMenu((m) => !m)}
           style={{
             background: menu ? c.accentSoft : 'transparent',
@@ -391,6 +396,8 @@ export function Masthead({
             justifyContent: 'center',
             cursor: 'pointer',
             flexShrink: 0,
+            position: 'relative',
+            zIndex: menu ? 32 : undefined,
           }}
         >
           <MenuIcon open={menu} color={menu ? c.accent : c.textDim} />
@@ -398,7 +405,11 @@ export function Masthead({
 
         {menu && (
           <>
-            <div onClick={() => setMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 30 }} />
+            <div
+              role="presentation"
+              onClick={() => setMenu(false)}
+              style={{ position: 'fixed', inset: 0, zIndex: 30, background: 'rgba(0,0,0,0.35)' }}
+            />
             <div
               style={{
                 position: 'absolute',

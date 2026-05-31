@@ -153,12 +153,12 @@ export default function ChroniclePage() {
         <button
           type="button"
           onClick={() => setVoteOpen(true)}
-          style={{ display: 'flex', alignItems: 'center', gap: 16, width: '100%', textAlign: 'left', cursor: 'pointer', margin: '26px 0 0', padding: '18px 22px', background: c.accentSoft, border: `1px solid ${c.lineStrong}` }}
+          style={{ display: 'none', alignItems: 'center', gap: 16, width: '100%', textAlign: 'left', cursor: 'pointer', margin: '26px 0 0', padding: '18px 22px', background: c.accentSoft, border: `1px solid ${c.lineStrong}` }}
         >
           <Seal size={46} glyph="◉" subtle />
           <span style={{ flex: 1 }}>
             <Kicker color={c.accent}>You are watching</Kicker>
-            <span style={{ display: 'block', fontFamily: f.display, fontSize: 21, color: c.text, marginTop: 3 }}>The Breath</span>
+            <span style={{ display: 'block', fontFamily: f.display, fontSize: 21, color: c.text, marginTop: 3 }}>Divinity Choice</span>
             <span style={{ display: 'block', fontFamily: f.serif, fontSize: 14, color: c.textDim, marginTop: 3 }}>
               You may breathe upon the world — once, this cycle.
             </span>
