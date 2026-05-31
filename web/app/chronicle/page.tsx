@@ -1,11 +1,10 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { fetchChronicle } from '../../lib/api';
 import type { ChronicleEntry } from '../../lib/types';
-import { oracle, Kicker, SectionHead, Seal } from '../../lib/oracle';
+import { oracle, Kicker, SectionHead, Seal, Masthead, VotePanel } from '../../lib/oracle';
 
 const c = oracle.c;
 const f = oracle.fonts;
@@ -57,6 +56,7 @@ function PaperOrnament() {
 export default function ChroniclePage() {
   const [pages, setPages] = useState<ChronicleEntry[]>([]);
   const [open, setOpen] = useState<Set<number>>(new Set());
+  const [voteOpen, setVoteOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -101,24 +101,7 @@ export default function ChroniclePage() {
   return (
     <div style={{ background: c.base, color: c.text, minHeight: '100vh' }}>
       {/* masthead */}
-      <header
-        style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 10,
-          background: c.frame,
-          borderBottom: `1px solid ${c.lineStrong}`,
-          padding: '12px 22px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}
-      >
-        <span style={{ fontFamily: f.display, fontWeight: 700, fontSize: 22, color: c.text, letterSpacing: '0.14em' }}>THE CHRONICLE</span>
-        <Link href="/world" style={{ fontFamily: f.mono, fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: c.accent, textDecoration: 'none' }}>
-          ← The Eye
-        </Link>
-      </header>
+      <Masthead current="chronicle" dateline={dateline(latest)} sticky />
 
       <main style={{ maxWidth: 760, margin: '0 auto', padding: 'clamp(28px, 5vw, 64px) 24px 80px' }}>
         {/* book head */}
@@ -166,6 +149,23 @@ export default function ChroniclePage() {
           )}
         </Leaf>
 
+        {/* the breath */}
+        <button
+          type="button"
+          onClick={() => setVoteOpen(true)}
+          style={{ display: 'flex', alignItems: 'center', gap: 16, width: '100%', textAlign: 'left', cursor: 'pointer', margin: '26px 0 0', padding: '18px 22px', background: c.accentSoft, border: `1px solid ${c.lineStrong}` }}
+        >
+          <Seal size={46} glyph="◉" subtle />
+          <span style={{ flex: 1 }}>
+            <Kicker color={c.accent}>You are watching</Kicker>
+            <span style={{ display: 'block', fontFamily: f.display, fontSize: 21, color: c.text, marginTop: 3 }}>The Breath</span>
+            <span style={{ display: 'block', fontFamily: f.serif, fontSize: 14, color: c.textDim, marginTop: 3 }}>
+              You may breathe upon the world — once, this cycle.
+            </span>
+          </span>
+          <span style={{ fontFamily: f.mono, fontSize: 18, color: c.accent }}>→</span>
+        </button>
+
         {/* the archive */}
         {archive.length > 0 && (
           <div style={{ marginTop: 'clamp(36px,6vw,64px)' }}>
@@ -202,6 +202,8 @@ export default function ChroniclePage() {
           </div>
         )}
       </main>
+
+      {voteOpen && <VotePanel onClose={() => setVoteOpen(false)} />}
     </div>
   );
 }
