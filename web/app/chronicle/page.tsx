@@ -176,9 +176,9 @@ export default function ChroniclePage() {
           <Seal size={46} glyph="◉" subtle />
           <span style={{ flex: 1 }}>
             <Kicker color={c.accent}>You are watching</Kicker>
-            <span style={{ display: 'block', fontFamily: f.display, fontSize: 21, color: c.text, marginTop: 3 }}>The Breath</span>
+            <span style={{ display: 'block', fontFamily: f.display, fontSize: 21, color: c.text, marginTop: 3 }}>Your Influence</span>
             <span style={{ display: 'block', fontFamily: f.serif, fontSize: 14, color: c.textDim, marginTop: 3 }}>
-              You may breathe upon the world — once, this cycle.
+              You may cast your influence upon the world — once, this cycle.
             </span>
           </span>
           <span style={{ fontFamily: f.mono, fontSize: 18, color: c.accent }}>→</span>

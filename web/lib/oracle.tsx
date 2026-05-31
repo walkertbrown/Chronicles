@@ -186,7 +186,7 @@ export const VOTE = {
   options: [
     { id: 'inland', title: 'Let the curious go inland', body: 'A small party follows toward the ruins. They may find the first of the artifacts. They may not return.' },
     { id: 'hold', title: 'Hold the shore another season', body: 'The camp consolidates. Safety, for now — and the towers wait, as they have always waited.' },
-    { id: 'abstain', title: 'Do not breathe on the world', body: 'Let it decide for itself. The gods watch and stay their hand.' },
+    { id: 'abstain', title: 'Do not intervene', body: 'Let it decide for itself. The gods watch and stay their hand.' },
   ],
 };
 
@@ -214,7 +214,7 @@ export function VotePanel({ onClose }: { onClose: () => void }) {
           <div style={{ marginTop: 14 }}>
             <Kicker color={c.accent}>You are watching · Cycle {VOTE.cycle}</Kicker>
           </div>
-          <h2 style={{ fontFamily: f.display, fontWeight: 600, fontSize: 30, color: c.text, margin: '8px 0 0', letterSpacing: '0.06em' }}>The Breath</h2>
+          <h2 style={{ fontFamily: f.display, fontWeight: 600, fontSize: 30, color: c.text, margin: '8px 0 0', letterSpacing: '0.06em' }}>Your Influence</h2>
         </div>
         <p style={{ fontFamily: f.serif, fontSize: 17, lineHeight: 1.6, color: c.textDim, textAlign: 'center', margin: '0 0 24px', fontStyle: 'italic' }}>{VOTE.prompt}</p>
         <div style={{ height: 1, background: c.line, marginBottom: 20 }} />
@@ -237,7 +237,7 @@ export function VotePanel({ onClose }: { onClose: () => void }) {
         </div>
         <div style={{ marginTop: 22, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
           <Kicker>{VOTE.turnout.toLocaleString()} watching · closes in {VOTE.closesIn}</Kicker>
-          {cast !== null && <Kicker color={c.accent}>Your breath is recorded</Kicker>}
+          {cast !== null && <Kicker color={c.accent}>Your influence is recorded</Kicker>}
         </div>
         {cast !== null && (
           <p style={{ fontFamily: f.serif, fontStyle: 'italic', fontSize: 15, color: c.textDim, textAlign: 'center', margin: '16px 0 0', lineHeight: 1.55 }}>

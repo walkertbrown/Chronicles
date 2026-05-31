@@ -784,7 +784,7 @@ function Roster({
         <Seal size={40} glyph="◉" subtle />
         <span style={{ flex: 1 }}>
           <Kicker color={c.accent}>You are watching</Kicker>
-          <span style={{ display: 'block', fontFamily: f.display, fontSize: 18, color: c.text, marginTop: 2 }}>The Breath</span>
+          <span style={{ display: 'block', fontFamily: f.display, fontSize: 18, color: c.text, marginTop: 2 }}>Your Influence</span>
         </span>
         <span style={{ fontFamily: f.mono, fontSize: 16, color: c.accent }}>→</span>
       </button>
