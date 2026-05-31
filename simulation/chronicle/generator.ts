@@ -81,11 +81,12 @@ async function ensurePrologueSeeded(state: WorldState): Promise<void> {
 
   const createdAt = new Date().toISOString();
   const prologue = buildPrologueEntry(state.worldId, createdAt);
-  await writeChronicleDocument(state.worldId, prologue);
 
   if (!state.chroniclePages.some((p) => p.id === 'prologue' || p.isPrologue)) {
     state.chroniclePages.unshift(prologue);
   }
+
+  await writeChronicleDocument(state.worldId, prologue);
 
   console.log('Chronicle prologue written to Firestore.');
 }
@@ -223,8 +224,8 @@ not yet made. End in motion — but end.`;
       order,
     };
 
-    await writeChronicleDocument(state.worldId, entry);
     state.chroniclePages.push(entry);
+    await writeChronicleDocument(state.worldId, entry);
 
     state.lastChronicleGeneratedAt = new Date().toISOString();
 
