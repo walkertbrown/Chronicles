@@ -1034,7 +1034,9 @@ function describeOutcome(outcome: TickOutcome, agent: Agent): string {
       return 'Finding no water nearby';
 
     case OutcomeType.AteSomething:
-      return outcome.success ? 'Eating from the vessel stores' : 'The vessel stores are empty';
+      return outcome.success
+        ? 'Eating from the vessel stores'
+        : 'Enduring hunger — nothing left in the stores';
 
     case OutcomeType.Rested:
       return 'Resting';
@@ -1116,9 +1118,20 @@ export function executeAgentAction(
     let seaOutcome: TickOutcome;
     switch (drive) {
       case 'hunger':
-        seaOutcome = shouldEatNotDrink(agent, state)
-          ? actionEatFromVessel(agent, state)
-          : actionDrinkFromVessel(agent, state);
+        if (shouldEatNotDrink(agent, state)) {
+          seaOutcome = actionEatFromVessel(agent, state);
+          if (!seaOutcome.success) {
+            seaOutcome = actionDrinkFromVessel(agent, state);
+            if (!seaOutcome.success) {
+              seaOutcome = actionRestAtSea(agent);
+            }
+          }
+        } else {
+          seaOutcome = actionDrinkFromVessel(agent, state);
+          if (!seaOutcome.success) {
+            seaOutcome = actionRestAtSea(agent);
+          }
+        }
         break;
       case 'fatigue':
         seaOutcome = actionRestAtSea(agent);
