@@ -191,6 +191,8 @@ export interface Agent {
   conduitId: string | null                  // null until bonded to a Conduit
   conduitBondType: 'light' | 'dark' | null  // null until bonded; set at bond formation
 
+  currentAction: string | null              // plain-English description of this tick's action. null until first tick.
+
   significanceScore: number                 // Recalculated every tick
   chronicleThreadActive: boolean
   lastChroniclePageMention: number | null   // Simulated day number

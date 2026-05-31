@@ -655,6 +655,7 @@ export function initializeAgents(
       foundingHistory,
       conduitId: null,
       conduitBondType: null,
+      currentAction: null,
       significanceScore: 0,
       chronicleThreadActive: false,
       lastChroniclePageMention: null,

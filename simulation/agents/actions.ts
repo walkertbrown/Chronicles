@@ -1007,6 +1007,82 @@ function actionFish(agent: Agent, state: WorldState): TickOutcome {
 }
 
 // ============================================================
+// ACTION DESCRIPTION
+// Translates an outcome into plain English for the frontend detail panel.
+// Called once per tick per agent after the outcome is determined.
+// ============================================================
+
+function describeOutcome(outcome: TickOutcome, agent: Agent): string {
+  switch (outcome.type) {
+    case OutcomeType.Harvested:
+      if (outcome.success) return 'Gathering food';
+      if (outcome.partial) return 'Searching for food';
+      return 'Finding no food nearby';
+
+    case OutcomeType.FoundResource:
+      return 'Gathering food — found rich ground';
+
+    case OutcomeType.Hunted:
+      return outcome.success ? 'Hunting' : 'Hunting — came back empty-handed';
+
+    case OutcomeType.Fished:
+      return outcome.success ? 'Fishing' : 'Fishing — nothing yet';
+
+    case OutcomeType.DrankWater:
+      if (outcome.success) return 'Drinking water';
+      if (outcome.partial) return 'Moving toward water';
+      return 'Finding no water nearby';
+
+    case OutcomeType.AteSomething:
+      return outcome.success ? 'Eating from the vessel stores' : 'The vessel stores are empty';
+
+    case OutcomeType.Rested:
+      return 'Resting';
+
+    case OutcomeType.Wandered:
+      return agent.drives.grief > 0.6 ? 'Moving without direction' : 'Wandering';
+
+    case OutcomeType.Explored:
+      return 'Exploring unfamiliar ground';
+
+    case OutcomeType.FoundRuin:
+      return 'Exploring — standing in the ruins';
+
+    case OutcomeType.FoundArtifact:
+      return 'Exploring — found something old';
+
+    case OutcomeType.Fled:
+      return 'Fleeing';
+
+    case OutcomeType.StoodGround:
+      return 'Holding ground despite fear';
+
+    case OutcomeType.Interacted:
+      return outcome.success ? 'Talking with someone' : 'Looking for someone to talk to';
+
+    case OutcomeType.Helped:
+      if (outcome.success) return 'Helping someone in distress';
+      if (outcome.partial) return 'Moving toward someone who needs help';
+      return 'Finding no one who needs help';
+
+    case OutcomeType.Conflicted:
+      return 'In conflict';
+
+    case OutcomeType.ConflictResolved:
+      return 'In conflict';
+
+    case OutcomeType.Maintained:
+      return 'Working on the vessel';
+
+    case OutcomeType.Steered:
+      return 'Steering the vessel';
+
+    default:
+      return 'Acting';
+  }
+}
+
+// ============================================================
 // MAIN EXPORT
 // ============================================================
 
@@ -1020,51 +1096,58 @@ export function executeAgentAction(
   if (atSea) {
     const steerer = findSteerer(state);
     if (steerer?.id === agent.id && isOnOrAdjacentToVessel(agent, state)) {
-      outcomes.push(actionSteer(agent));
+      const o = actionSteer(agent);
+      outcomes.push(o);
+      agent.currentAction = describeOutcome(o, agent);
       return;
     }
 
     const drive = getDominantDrive(agent);
 
     if (drive === null) {
-      if (!state.vessel.beached && isOnVesselTile(agent, state)) {
-        outcomes.push(actionMaintainVessel(agent));
-      } else {
-        outcomes.push(actionRestAtSea(agent));
-      }
+      const o = (!state.vessel.beached && isOnVesselTile(agent, state))
+        ? actionMaintainVessel(agent)
+        : actionRestAtSea(agent);
+      outcomes.push(o);
+      agent.currentAction = describeOutcome(o, agent);
       return;
     }
 
+    let seaOutcome: TickOutcome;
     switch (drive) {
       case 'hunger':
-        outcomes.push(
-          shouldEatNotDrink(agent, state)
-            ? actionEatFromVessel(agent, state)
-            : actionDrinkFromVessel(agent, state),
-        );
-        return;
+        seaOutcome = shouldEatNotDrink(agent, state)
+          ? actionEatFromVessel(agent, state)
+          : actionDrinkFromVessel(agent, state);
+        break;
       case 'fatigue':
-        outcomes.push(actionRestAtSea(agent));
-        return;
+        seaOutcome = actionRestAtSea(agent);
+        break;
       case 'fear':
-        outcomes.push(
-          agent.traits.courage >= COURAGE_STAND_THRESHOLD
-            ? actionStandGround(agent)
-            : actionRestAtSea(agent),
-        );
-        return;
+        seaOutcome = agent.traits.courage >= COURAGE_STAND_THRESHOLD
+          ? actionStandGround(agent)
+          : actionRestAtSea(agent);
+        break;
       case 'socialNeed':
       case 'longing':
-        outcomes.push(actionInteractAtSea(agent, state));
-        return;
+        seaOutcome = actionInteractAtSea(agent, state);
+        break;
       case 'grief':
-        outcomes.push(actionRestAtSea(agent));
-        return;
+        seaOutcome = actionRestAtSea(agent);
+        break;
+      default:
+        seaOutcome = actionRestAtSea(agent);
+        break;
     }
+    outcomes.push(seaOutcome);
+    agent.currentAction = describeOutcome(seaOutcome, agent);
+    return;
   }
 
   if (shouldNobilityHelp(agent, state)) {
-    outcomes.push(actionHelp(agent, state));
+    const o = actionHelp(agent, state);
+    outcomes.push(o);
+    agent.currentAction = describeOutcome(o, agent);
     return;
   }
 
@@ -1131,10 +1214,13 @@ export function executeAgentAction(
   if (shouldConflict(agent, state)) {
     const target = pickRandomSameTileTarget(agent, state);
     if (target !== undefined) {
-      outcomes.push(actionConflict(agent, target, state, outcomes));
+      const conflictOutcome = actionConflict(agent, target, state, outcomes);
+      outcomes.push(conflictOutcome);
+      agent.currentAction = describeOutcome(conflictOutcome, agent);
       return;
     }
   }
 
   outcomes.push(outcome);
+  agent.currentAction = describeOutcome(outcome, agent);
 }

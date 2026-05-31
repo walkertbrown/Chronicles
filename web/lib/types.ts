@@ -86,6 +86,7 @@ export interface AgentSnapshot {
   relationships: Array<{ agentId: string; trust: number; bond: string }>;
   conduitId: string | null;
   conduitBondType: 'light' | 'dark' | null;
+  currentAction: string | null;
 }
 
 export interface TileSnapshot {

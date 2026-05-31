@@ -115,6 +115,9 @@ function buildStateSnapshot(state: WorldState): {
         trust: rel.trust,
         bond: rel.bond,
       })),
+      conduitId: agent.conduitId,
+      conduitBondType: agent.conduitBondType,
+      currentAction: agent.currentAction,
     })),
     conduits: state.conduits
       .filter((c): c is typeof c & { bondedAgentId: string; bondType: 'light' | 'dark' } =>

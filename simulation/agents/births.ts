@@ -195,6 +195,7 @@ function spawnChild(
     foundingHistory: null,
     conduitId: null,
     conduitBondType: null,
+    currentAction: null,
     significanceScore: 0,
     chronicleThreadActive: false,
     lastChroniclePageMention: null,
