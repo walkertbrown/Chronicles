@@ -1,19 +1,20 @@
 // simulation/companions/being.ts
-// Manages the companion being's behavior each tick.
+// Manages all 75 Conduit beings each tick.
+// Untracked Conduits move, observe, and generate sighting events.
+// Bonded Conduits follow their agent and amplify significance.
 
 import type {
   Agent,
   AgentProximityRecord,
-  CompanionBeing,
-  TileCache,
+  ConduitBeing,
+  SimEvent,
   WorldState,
-  WorldTile,
 } from '@shared/types.js';
+import { EventType } from '@shared/types.js';
 import {
   euclideanDistance,
   getAdjacentTiles,
   getTile,
-  getTilesInRange,
   isPassable,
   manhattanDistance,
   stepToward,
@@ -23,52 +24,70 @@ import {
 // CONSTANTS
 // ============================================================
 
-const COMPANION_MOVE_CHANCE_BASE = 0.4;
-const COMPANION_CURIOSITY_MOVE_BONUS = 0.3;
+// Movement
+const MOVE_CHANCE_BASE = 0.35;
+const CURIOSITY_MOVE_BONUS = 0.25;
 
-const FEAR_SPIKE_AGENT_PROXIMITY = 3;
-const FEAR_SPIKE_AMOUNT = 0.15;
-const FEAR_FADE_RATE = 0.008;
-const HIGH_AGGRESSION_FEAR_MULTIPLIER = 1.6;
+// Fear
+const FEAR_SPIKE_RADIUS = 4;
+const FEAR_SPIKE_BASE = 0.12;
+const FEAR_HIGH_AGGRESSION_MULTIPLIER = 1.7;
+const FEAR_FADE_RATE = 0.007;
+const FEAR_FLEE_THRESHOLD = 0.55;
+const FEAR_CURIOSITY_MOVE_MAX = 0.35;
 
-const CURIOSITY_BUILD_RATE = 0.002;
-const CURIOSITY_FADE_NEAR_AGENTS = 0.001;
-const CURIOSITY_ANCIENT_DENSITY_BONUS = 0.3;
-
-const PROXIMITY_TRACKING_RADIUS = 5;
-const FEAR_SPIKE_THRESHOLD_FOR_RECORD = 0.1;
-
-const BOND_PROXIMITY_TICKS_REQUIRED = 200;
-const BOND_NOBILITY_MINIMUM = 0.82;
-const BOND_FEAR_SPIKES_MAX = 3;
-
-const ANCIENT_DENSITY_PULL_THRESHOLD = 0.4;
-const RUINS_BEHAVIOR_RADIUS = 6;
-
-const AGENTS_NEAR_CURIOSITY_FADE_RADIUS = 5;
-const AGENTS_NEAR_CURIOSITY_FADE_COUNT = 3;
-const CURIOSITY_ANCIENT_DENSITY_MIN = 0.5;
-
-const FEAR_FLEE_THRESHOLD = 0.5;
-const FEAR_CURIOSITY_MOVE_MAX = 0.3;
+// Curiosity
+const CURIOSITY_BUILD_RATE = 0.0015;
 const CURIOSITY_MOVE_THRESHOLD = 0.5;
+const CURIOSITY_FADE_NEAR_AGENTS = 0.001;
+const CURIOSITY_ANCIENT_DENSITY_MIN = 0.45;
+const CURIOSITY_ANCIENT_DENSITY_BONUS = 0.25;
+const CURIOSITY_HUMAN_PULL_RADIUS = 80;   // tiles — Conduits are curious about humans from far off
+const CURIOSITY_HUMAN_PULL_CHANCE = 0.18; // chance per tick to drift toward nearest human cluster
+
+// Proximity (bonded only)
 const PROXIMITY_MOVE_THRESHOLD = 0.4;
-const BOND_PROXIMITY_DISTANCE_SCALE = 15;
+const PROXIMITY_DISTANCE_SCALE = 18;
 const BOND_NEAR_DISTANCE = 3;
-const BOND_FAR_DISTANCE = 10;
+const BOND_FAR_DISTANCE = 12;
 const BOND_STRENGTH_GAIN = 0.001;
 const BOND_STRENGTH_DECAY = 0.0005;
+
+// Proximity history
+const PROXIMITY_TRACKING_RADIUS = 6;
+const FEAR_SPIKE_THRESHOLD_FOR_RECORD = 0.1;
+
+// Sighting events
+const SIGHTING_COOLDOWN_TICKS = 200;      // min ticks between sighting logs for same Conduit
+const SIGHTING_AGENT_RADIUS = 10;         // tiles — how close agents must be to trigger sighting
+
+// ---- Light bond eligibility ----
+const LIGHT_BOND_PROXIMITY_TICKS = 180;   // ticks spent near this agent
+const LIGHT_BOND_FEAR_SPIKES_MAX = 4;
+const LIGHT_BOND_CURIOSITY_MIN = 0.65;
+const LIGHT_BOND_SIGNIFICANCE_PERCENTILE = 0.80;  // top 20% of population by significance
+const LIGHT_BOND_CHRONICLE_PAGES_MIN = 3;
+
+// ---- Dark bond eligibility ----
+const DARK_BOND_PROXIMITY_TICKS = 120;    // dark bonds form faster — the pull is stronger
+const DARK_BOND_FEAR_SPIKES_MAX = 8;      // dark-bond agents spike fear more, but Conduit still approaches
+const DARK_BOND_AGGRESSION_MIN = 0.70;
+const DARK_BOND_NOBILITY_MAX = 0.30;
+
+// Significance multiplier for bonded agents
+const LIGHT_BOND_SIGNIFICANCE_MULTIPLIER = 1.45;
+const DARK_BOND_SIGNIFICANCE_MULTIPLIER = 1.35;
 
 // ============================================================
 // HELPERS
 // ============================================================
 
-function clamp01(value: number): number {
-  return Math.max(0, Math.min(1, value));
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v));
 }
 
 function aliveAgents(state: WorldState): Agent[] {
-  return state.agents.filter((agent) => agent.alive);
+  return state.agents.filter((a) => a.alive);
 }
 
 function agentsWithinRadius(
@@ -78,177 +97,106 @@ function agentsWithinRadius(
   radius: number,
 ): Agent[] {
   return agents.filter(
-    (agent) => manhattanDistance(x, y, agent.position.x, agent.position.y) <= radius,
+    (a) => manhattanDistance(x, y, a.position.x, a.position.y) <= radius,
   );
 }
 
-function fearSpikeFromAgent(agent: Agent): number {
-  let spike = FEAR_SPIKE_AMOUNT;
-  if (agent.traits.aggression > 0.6) {
-    spike *= HIGH_AGGRESSION_FEAR_MULTIPLIER;
-  }
-  return spike;
-}
-
-function getPassableAdjacentPositions(
-  tiles: TileCache,
-  x: number,
-  y: number,
-  vesselBeached: boolean,
-): Array<{ x: number; y: number; tile: WorldTile }> {
-  const positions: Array<{ x: number; y: number; tile: WorldTile }> = [];
-
-  for (const tile of getAdjacentTiles(tiles, x, y)) {
-    if (isPassable(tile.terrain, vesselBeached)) {
-      positions.push({ x: tile.x, y: tile.y, tile });
-    }
-  }
-
-  return positions;
-}
-
-function findNearestAliveAgent(
-  companion: CompanionBeing,
-  state: WorldState,
-): Agent | undefined {
-  let nearest: Agent | undefined;
-  let nearestDistance = Infinity;
-
-  for (const agent of aliveAgents(state)) {
-    const distance = euclideanDistance(
-      companion.position.x,
-      companion.position.y,
-      agent.position.x,
-      agent.position.y,
-    );
-    if (distance < nearestDistance) {
-      nearestDistance = distance;
-      nearest = agent;
-    }
-  }
-
-  return nearest;
-}
-
-function findAgentById(state: WorldState, agentId: string): Agent | undefined {
-  return state.agents.find((agent) => agent.id === agentId);
-}
-
-function setCompanionPosition(
-  companion: CompanionBeing,
-  state: WorldState,
-  newX: number,
-  newY: number,
-): void {
-  const newTile = getTile(state.tiles, newX, newY);
-  if (newTile === undefined) return;
-  if (!isPassable(newTile.terrain, state.vessel.beached)) return;
-
-  const oldTile = getTile(
-    state.tiles,
-    companion.position.x,
-    companion.position.y,
-  );
-  if (oldTile !== undefined) {
-    oldTile.companionPresent = false;
-  }
-
-  newTile.companionPresent = true;
-  companion.position = { x: newX, y: newY };
-}
-
-function pickRandomPassableAdjacent(
-  tiles: TileCache,
-  x: number,
-  y: number,
-  vesselBeached: boolean,
-): { x: number; y: number } | undefined {
-  const adjacent = getPassableAdjacentPositions(tiles, x, y, vesselBeached);
-  if (adjacent.length === 0) return undefined;
-
-  const pick = adjacent[Math.floor(Math.random() * adjacent.length)];
-  return pick !== undefined ? { x: pick.x, y: pick.y } : undefined;
+function findAgentById(state: WorldState, id: string): Agent | undefined {
+  return state.agents.find((a) => a.id === id);
 }
 
 function findOrCreateProximityRecord(
-  companion: CompanionBeing,
+  conduit: ConduitBeing,
   agentId: string,
 ): AgentProximityRecord {
-  const existing = companion.agentProximityHistory.find(
-    (record) => record.agentId === agentId,
-  );
-  if (existing !== undefined) return existing;
+  let rec = conduit.agentProximityHistory.find((r) => r.agentId === agentId);
+  if (rec === undefined) {
+    rec = { agentId, totalTicks: 0, fearSpikes: 0 };
+    conduit.agentProximityHistory.push(rec);
+  }
+  return rec;
+}
 
-  const newRecord: AgentProximityRecord = {
-    agentId,
-    totalTicks: 0,
-    fearSpikes: 0,
-  };
-  companion.agentProximityHistory.push(newRecord);
-  return newRecord;
+function pickRandomPassableAdjacent(
+  state: WorldState,
+  x: number,
+  y: number,
+): { x: number; y: number } | undefined {
+  const candidates: { x: number; y: number }[] = [];
+  for (const tile of getAdjacentTiles(state.tiles, x, y)) {
+    if (isPassable(tile.terrain, state.vessel.beached)) {
+      candidates.push({ x: tile.x, y: tile.y });
+    }
+  }
+  if (candidates.length === 0) return undefined;
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+function stepTowardPassable(
+  state: WorldState,
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number,
+): { x: number; y: number } | undefined {
+  const next = stepToward(fromX, fromY, toX, toY);
+  if (next.x === fromX && next.y === fromY) return undefined;
+  const tile = getTile(state.tiles, next.x, next.y);
+  if (tile === undefined || !isPassable(tile.terrain, state.vessel.beached)) return undefined;
+  return next;
+}
+
+// Returns the significance percentile rank of an agent (0.0 = lowest, 1.0 = highest)
+function significancePercentile(agent: Agent, state: WorldState): number {
+  const alive = aliveAgents(state);
+  if (alive.length <= 1) return 1.0;
+  const sorted = [...alive].sort((a, b) => a.significanceScore - b.significanceScore);
+  const rank = sorted.findIndex((a) => a.id === agent.id);
+  return rank / (sorted.length - 1);
 }
 
 // ============================================================
-// DRIVE UPDATES
+// DRIVES
 // ============================================================
 
-function tickCompanionDrives(companion: CompanionBeing, state: WorldState): void {
-  const { x, y } = companion.position;
-  const nearbyForFear = agentsWithinRadius(
-    aliveAgents(state),
-    x,
-    y,
-    FEAR_SPIKE_AGENT_PROXIMITY,
-  );
+function tickConduitDrives(conduit: ConduitBeing, state: WorldState): void {
+  const { x, y } = conduit.position;
+  const alive = aliveAgents(state);
 
-  if (nearbyForFear.length > 0) {
-    let fearIncrease = 0;
-    for (const agent of nearbyForFear) {
-      fearIncrease += fearSpikeFromAgent(agent);
+  // Fear: spike from nearby agents, especially aggressive ones
+  const nearby = agentsWithinRadius(alive, x, y, FEAR_SPIKE_RADIUS);
+  if (nearby.length > 0) {
+    let spike = 0;
+    for (const agent of nearby) {
+      let s = FEAR_SPIKE_BASE;
+      if (agent.traits.aggression > 0.6) s *= FEAR_HIGH_AGGRESSION_MULTIPLIER;
+      spike += s;
     }
-    companion.drives.fear = clamp01(companion.drives.fear + fearIncrease);
+    conduit.drives.fear = clamp01(conduit.drives.fear + spike);
   } else {
-    companion.drives.fear = clamp01(companion.drives.fear - FEAR_FADE_RATE);
+    conduit.drives.fear = clamp01(conduit.drives.fear - FEAR_FADE_RATE);
   }
 
-  let curiosity = companion.drives.curiosity + CURIOSITY_BUILD_RATE;
-
-  const nearbyAgents = agentsWithinRadius(
-    aliveAgents(state),
-    x,
-    y,
-    AGENTS_NEAR_CURIOSITY_FADE_RADIUS,
-  );
-  if (nearbyAgents.length > AGENTS_NEAR_CURIOSITY_FADE_COUNT) {
-    curiosity -= CURIOSITY_FADE_NEAR_AGENTS;
-  }
-
+  // Curiosity: builds naturally; ancient density boosts it; many nearby agents dampen it
+  let curiosity = conduit.drives.curiosity + CURIOSITY_BUILD_RATE;
   const currentTile = getTile(state.tiles, x, y);
-  if (
-    currentTile !== undefined &&
-    currentTile.ancientDensity > CURIOSITY_ANCIENT_DENSITY_MIN
-  ) {
+  if (currentTile !== undefined && currentTile.ancientDensity > CURIOSITY_ANCIENT_DENSITY_MIN) {
     curiosity += CURIOSITY_ANCIENT_DENSITY_BONUS * currentTile.ancientDensity;
   }
+  const nearbyCount = agentsWithinRadius(alive, x, y, PROXIMITY_TRACKING_RADIUS).length;
+  if (nearbyCount > 3) curiosity -= CURIOSITY_FADE_NEAR_AGENTS * nearbyCount;
+  conduit.drives.curiosity = clamp01(curiosity);
 
-  companion.drives.curiosity = clamp01(curiosity);
-
-  if (companion.bondedAgentId === null) {
-    companion.drives.proximity = 0;
+  // Proximity: only active when bonded
+  if (conduit.bondedAgentId === null) {
+    conduit.drives.proximity = 0;
   } else {
-    const bondedAgent = findAgentById(state, companion.bondedAgentId);
-    if (bondedAgent === undefined || !bondedAgent.alive) {
-      companion.drives.proximity = 0;
+    const bonded = findAgentById(state, conduit.bondedAgentId);
+    if (bonded === undefined || !bonded.alive) {
+      conduit.drives.proximity = 0;
     } else {
-      const distance = manhattanDistance(
-        x,
-        y,
-        bondedAgent.position.x,
-        bondedAgent.position.y,
-      );
-      companion.drives.proximity = clamp01(
-        distance / BOND_PROXIMITY_DISTANCE_SCALE,
-      );
+      const dist = manhattanDistance(x, y, bonded.position.x, bonded.position.y);
+      conduit.drives.proximity = clamp01(dist / PROXIMITY_DISTANCE_SCALE);
     }
   }
 }
@@ -257,244 +205,363 @@ function tickCompanionDrives(companion: CompanionBeing, state: WorldState): void
 // MOVEMENT
 // ============================================================
 
-function moveCompanion(companion: CompanionBeing, state: WorldState): void {
-  const { x, y } = companion.position;
-  const { tiles, vessel } = state;
-  const vesselBeached = vessel.beached;
+function moveConduit(conduit: ConduitBeing, state: WorldState): void {
+  const { x, y } = conduit.position;
 
-  if (companion.drives.fear > FEAR_FLEE_THRESHOLD) {
-    const nearestAgent = findNearestAliveAgent(companion, state);
-    if (nearestAgent !== undefined) {
-      const adjacent = getPassableAdjacentPositions(tiles, x, y, vesselBeached);
-      const currentDistance = euclideanDistance(
-        x,
-        y,
-        nearestAgent.position.x,
-        nearestAgent.position.y,
-      );
+  // 1. Fear — flee from nearest agent
+  if (conduit.drives.fear > FEAR_FLEE_THRESHOLD) {
+    const nearest = aliveAgents(state).reduce<Agent | undefined>((best, a) => {
+      const d = euclideanDistance(x, y, a.position.x, a.position.y);
+      if (best === undefined) return a;
+      return d < euclideanDistance(x, y, best.position.x, best.position.y) ? a : best;
+    }, undefined);
 
+    if (nearest !== undefined) {
+      // Step away — pick adjacent tile that increases distance
       let best: { x: number; y: number } | undefined;
-      let bestDistance = currentDistance;
-
-      for (const pos of adjacent) {
-        const distance = euclideanDistance(
-          pos.x,
-          pos.y,
-          nearestAgent.position.x,
-          nearestAgent.position.y,
-        );
-        if (distance > bestDistance) {
-          bestDistance = distance;
-          best = { x: pos.x, y: pos.y };
-        }
+      let bestDist = euclideanDistance(x, y, nearest.position.x, nearest.position.y);
+      for (const tile of getAdjacentTiles(state.tiles, x, y)) {
+        if (!isPassable(tile.terrain, state.vessel.beached)) continue;
+        const d = euclideanDistance(tile.x, tile.y, nearest.position.x, nearest.position.y);
+        if (d > bestDist) { bestDist = d; best = { x: tile.x, y: tile.y }; }
       }
-
-      if (best !== undefined) {
-        setCompanionPosition(companion, state, best.x, best.y);
-      }
+      if (best !== undefined) { setConduitPosition(conduit, state, best.x, best.y); }
     }
     return;
   }
 
-  if (
-    companion.bondedAgentId !== null &&
-    companion.drives.proximity > PROXIMITY_MOVE_THRESHOLD
-  ) {
-    const bondedAgent = findAgentById(state, companion.bondedAgentId);
-    if (bondedAgent !== undefined && bondedAgent.alive) {
-      const next = stepToward(x, y, bondedAgent.position.x, bondedAgent.position.y);
-      const nextTile = getTile(tiles, next.x, next.y);
-      if (
-        nextTile !== undefined &&
-        isPassable(nextTile.terrain, vesselBeached) &&
-        (next.x !== x || next.y !== y)
-      ) {
-        setCompanionPosition(companion, state, next.x, next.y);
-        return;
-      }
+  // 2. Proximity — follow bonded agent
+  if (conduit.bondedAgentId !== null && conduit.drives.proximity > PROXIMITY_MOVE_THRESHOLD) {
+    const bonded = findAgentById(state, conduit.bondedAgentId);
+    if (bonded !== undefined && bonded.alive) {
+      const next = stepTowardPassable(state, x, y, bonded.position.x, bonded.position.y);
+      if (next !== undefined) { setConduitPosition(conduit, state, next.x, next.y); return; }
     }
   }
 
+  // 3. Curiosity toward humans (untracked Conduits drift toward population)
   if (
-    companion.drives.fear < FEAR_CURIOSITY_MOVE_MAX &&
-    companion.drives.curiosity > CURIOSITY_MOVE_THRESHOLD
+    conduit.bondedAgentId === null &&
+    conduit.drives.fear < FEAR_CURIOSITY_MOVE_MAX &&
+    conduit.drives.curiosity > CURIOSITY_MOVE_THRESHOLD &&
+    Math.random() < CURIOSITY_HUMAN_PULL_CHANCE
   ) {
-    const adjacent = getPassableAdjacentPositions(tiles, x, y, vesselBeached);
-    const currentTile = getTile(tiles, x, y);
-    const currentDensity = currentTile?.ancientDensity ?? 0;
-
-    let highestDensity = currentDensity;
-    for (const pos of adjacent) {
-      if (pos.tile.ancientDensity > highestDensity) {
-        highestDensity = pos.tile.ancientDensity;
-      }
+    const alive = aliveAgents(state);
+    const inRange = agentsWithinRadius(alive, x, y, CURIOSITY_HUMAN_PULL_RADIUS);
+    if (inRange.length > 0) {
+      // Drift toward centroid of nearby humans
+      const cx = inRange.reduce((s, a) => s + a.position.x, 0) / inRange.length;
+      const cy = inRange.reduce((s, a) => s + a.position.y, 0) / inRange.length;
+      const next = stepTowardPassable(state, x, y, Math.round(cx), Math.round(cy));
+      if (next !== undefined) { setConduitPosition(conduit, state, next.x, next.y); return; }
     }
+  }
 
-    if (highestDensity <= currentDensity) {
-      const randomMove = pickRandomPassableAdjacent(tiles, x, y, vesselBeached);
-      if (randomMove !== undefined) {
-        setCompanionPosition(companion, state, randomMove.x, randomMove.y);
-      }
-      return;
-    }
-
+  // 4. Ancient density gradient
+  if (conduit.drives.fear < FEAR_CURIOSITY_MOVE_MAX && conduit.drives.curiosity > CURIOSITY_MOVE_THRESHOLD) {
+    const currentDensity = getTile(state.tiles, x, y)?.ancientDensity ?? 0;
     let best: { x: number; y: number } | undefined;
     let bestDensity = currentDensity;
-
-    for (const pos of adjacent) {
-      if (pos.tile.ancientDensity > bestDensity) {
-        bestDensity = pos.tile.ancientDensity;
-        best = { x: pos.x, y: pos.y };
-      }
+    for (const tile of getAdjacentTiles(state.tiles, x, y)) {
+      if (!isPassable(tile.terrain, state.vessel.beached)) continue;
+      if (tile.ancientDensity > bestDensity) { bestDensity = tile.ancientDensity; best = { x: tile.x, y: tile.y }; }
     }
-
-    if (best !== undefined) {
-      setCompanionPosition(companion, state, best.x, best.y);
-    }
-    return;
+    if (best !== undefined) { setConduitPosition(conduit, state, best.x, best.y); return; }
   }
 
-  const moveChance =
-    COMPANION_MOVE_CHANCE_BASE +
-    companion.drives.curiosity * COMPANION_CURIOSITY_MOVE_BONUS;
-
+  // 5. Random wander
+  const moveChance = MOVE_CHANCE_BASE + conduit.drives.curiosity * CURIOSITY_MOVE_BONUS;
   if (Math.random() < moveChance) {
-    const randomMove = pickRandomPassableAdjacent(tiles, x, y, vesselBeached);
-    if (randomMove !== undefined) {
-      setCompanionPosition(companion, state, randomMove.x, randomMove.y);
-    }
+    const r = pickRandomPassableAdjacent(state, x, y);
+    if (r !== undefined) setConduitPosition(conduit, state, r.x, r.y);
   }
+}
+
+function setConduitPosition(conduit: ConduitBeing, state: WorldState, nx: number, ny: number): void {
+  const oldTile = getTile(state.tiles, conduit.position.x, conduit.position.y);
+  if (oldTile !== undefined) {
+    oldTile.conduitIds = oldTile.conduitIds.filter((id) => id !== conduit.id);
+  }
+  const newTile = getTile(state.tiles, nx, ny);
+  if (newTile !== undefined) {
+    if (!newTile.conduitIds.includes(conduit.id)) newTile.conduitIds.push(conduit.id);
+  }
+  conduit.position = { x: nx, y: ny };
 }
 
 // ============================================================
 // PROXIMITY HISTORY
 // ============================================================
 
-function updateProximityHistory(
-  companion: CompanionBeing,
-  state: WorldState,
-): void {
-  const { x, y } = companion.position;
-  const trackedAgents = agentsWithinRadius(
-    aliveAgents(state),
-    x,
-    y,
-    PROXIMITY_TRACKING_RADIUS,
-  );
+function updateProximityHistory(conduit: ConduitBeing, state: WorldState): void {
+  const { x, y } = conduit.position;
+  const tracked = agentsWithinRadius(aliveAgents(state), x, y, PROXIMITY_TRACKING_RADIUS);
 
-  for (const agent of trackedAgents) {
-    const record = findOrCreateProximityRecord(companion, agent.id);
-    record.totalTicks += 1;
-
-    const distance = manhattanDistance(
-      x,
-      y,
-      agent.position.x,
-      agent.position.y,
-    );
-    if (distance <= FEAR_SPIKE_AGENT_PROXIMITY) {
-      const spike = fearSpikeFromAgent(agent);
-      if (spike >= FEAR_SPIKE_THRESHOLD_FOR_RECORD) {
-        record.fearSpikes += 1;
-      }
+  for (const agent of tracked) {
+    const rec = findOrCreateProximityRecord(conduit, agent.id);
+    rec.totalTicks += 1;
+    const dist = manhattanDistance(x, y, agent.position.x, agent.position.y);
+    if (dist <= FEAR_SPIKE_RADIUS) {
+      let spike = FEAR_SPIKE_BASE;
+      if (agent.traits.aggression > 0.6) spike *= FEAR_HIGH_AGGRESSION_MULTIPLIER;
+      if (spike >= FEAR_SPIKE_THRESHOLD_FOR_RECORD) rec.fearSpikes += 1;
     }
   }
+}
+
+// ============================================================
+// SIGHTING EVENTS
+// ============================================================
+
+function maybeLogSighting(
+  conduit: ConduitBeing,
+  state: WorldState,
+  events: SimEvent[],
+): void {
+  if (conduit.bondedAgentId !== null) return; // bonded Conduits don't generate sighting events
+
+  const { x, y } = conduit.position;
+  const nearby = agentsWithinRadius(aliveAgents(state), x, y, SIGHTING_AGENT_RADIUS);
+  if (nearby.length === 0) return;
+
+  const cooldownPassed =
+    conduit.lastSightingTick === null ||
+    state.tick - conduit.lastSightingTick >= SIGHTING_COOLDOWN_TICKS;
+  if (!cooldownPassed) return;
+
+  // Pick the highest-significance nearby agent as the anchor for the event description
+  const anchor = nearby.reduce((best, a) =>
+    a.significanceScore > best.significanceScore ? a : best,
+  );
+
+  const descriptions = [
+    `A luminous creature was seen watching from the treeline near ${anchor.name} ${anchor.familyName}.`,
+    `One of the glowing beings observed from a distance as ${anchor.name} ${anchor.familyName} moved through the area.`,
+    `A large-eyed creature lingered at the edge of camp, watching ${anchor.name} ${anchor.familyName} without sound.`,
+    `The creature was gone before anyone moved toward it, but ${anchor.name} ${anchor.familyName} saw it clearly.`,
+    `Something luminous and still watched from the undergrowth. ${anchor.name} ${anchor.familyName} did not look away.`,
+  ];
+  const description = descriptions[Math.floor(Math.random() * descriptions.length)] ?? descriptions[0]!;
+
+  const event: SimEvent = {
+    id: `sighting_${conduit.id}_${state.tick}`,
+    tick: state.tick,
+    day: state.day,
+    type: EventType.ConduitSighting,
+    involvedAgents: [anchor.id],
+    location: { x, y },
+    description,
+    narrativeWeight: 0.35 + anchor.significanceScore * 0.3,
+    threadRelevant: [anchor.familyName],
+  };
+
+  events.push(event);
+  conduit.sightingCount += 1;
+  conduit.lastSightingTick = state.tick;
 }
 
 // ============================================================
 // BONDING
 // ============================================================
 
-// Sample milestone: eligibility is checked by the tick loop but bonding is
-// never executed — a non-null return is logged as a significant event only.
-export function checkBondEligibility(
-  companion: CompanionBeing,
+function checkBondEligibility(
+  conduit: ConduitBeing,
   state: WorldState,
-): string | null {
-  if (companion.bondedAgentId !== null) return null;
+): { agentId: string; type: 'light' | 'dark' } | null {
+  if (conduit.bondedAgentId !== null) return null;
 
-  for (const record of companion.agentProximityHistory) {
-    if (record.totalTicks < BOND_PROXIMITY_TICKS_REQUIRED) continue;
-    if (record.fearSpikes >= BOND_FEAR_SPIKES_MAX) continue;
-
-    const agent = findAgentById(state, record.agentId);
+  for (const rec of conduit.agentProximityHistory) {
+    const agent = findAgentById(state, rec.agentId);
     if (agent === undefined || !agent.alive) continue;
-    if (agent.traits.nobility < BOND_NOBILITY_MINIMUM) continue;
 
-    return record.agentId;
+    // ---- Dark bond check (takes priority — reveal what was always there) ----
+    if (
+      rec.totalTicks >= DARK_BOND_PROXIMITY_TICKS &&
+      rec.fearSpikes <= DARK_BOND_FEAR_SPIKES_MAX &&
+      agent.traits.aggression >= DARK_BOND_AGGRESSION_MIN &&
+      agent.traits.nobility <= DARK_BOND_NOBILITY_MAX
+    ) {
+      return { agentId: agent.id, type: 'dark' };
+    }
+
+    // ---- Light bond check ----
+    if (
+      rec.totalTicks >= LIGHT_BOND_PROXIMITY_TICKS &&
+      rec.fearSpikes <= LIGHT_BOND_FEAR_SPIKES_MAX &&
+      agent.traits.curiosity >= LIGHT_BOND_CURIOSITY_MIN &&
+      (agent.lastChroniclePageMention !== null || agent.chronicleThreadActive) &&
+      significancePercentile(agent, state) >= LIGHT_BOND_SIGNIFICANCE_PERCENTILE
+    ) {
+      // Chronicle page count check — agent must have been noticed by the story
+      const pagesMentioned = state.chroniclePages.filter((p) =>
+        p.threads.some((t) => t.primaryAgentId === agent.id) ||
+        p.significantEvents.some((eid) =>
+          state.eventLog.find((e) => e.id === eid)?.involvedAgents.includes(agent.id),
+        ),
+      ).length;
+      if (pagesMentioned >= LIGHT_BOND_CHRONICLE_PAGES_MIN) {
+        return { agentId: agent.id, type: 'light' };
+      }
+    }
   }
 
   return null;
 }
 
-function updateBondStrength(companion: CompanionBeing, state: WorldState): void {
-  if (companion.bondedAgentId === null) return;
+function executeBond(
+  conduit: ConduitBeing,
+  agentId: string,
+  bondType: 'light' | 'dark',
+  state: WorldState,
+  events: SimEvent[],
+): void {
+  const agent = findAgentById(state, agentId);
+  if (agent === undefined) return;
 
-  const bondedAgent = findAgentById(state, companion.bondedAgentId);
-  if (bondedAgent === undefined || !bondedAgent.alive) {
-    companion.bondedAgentId = null;
-    companion.bondStrength = 0;
+  conduit.bondedAgentId = agentId;
+  conduit.bondType = bondType;
+  conduit.bondStrength = 0.05;
+
+  agent.conduitId = conduit.id;
+  agent.conduitBondType = bondType;
+
+  const eventType = bondType === 'light' ? EventType.ConduitBondLight : EventType.ConduitBondDark;
+
+  const lightDescriptions = [
+    `The creature did not leave when ${agent.name} ${agent.familyName} approached. It has not left since.`,
+    `${agent.name} ${agent.familyName} sat with the luminous creature until dark. In the morning it was still there.`,
+    `Nobody saw it happen. But the creature now follows ${agent.name} ${agent.familyName} wherever they go.`,
+  ];
+  const darkDescriptions = [
+    `The creature approached ${agent.name} ${agent.familyName} in the night. Something about the way it watches has changed.`,
+    `${agent.name} ${agent.familyName} did not call to it. It came anyway. The others notice it does not watch them the same way anymore.`,
+    `The bond formed without ceremony. Those near ${agent.name} ${agent.familyName} felt the shift before they could name it.`,
+  ];
+  const descs = bondType === 'light' ? lightDescriptions : darkDescriptions;
+  const description = descs[Math.floor(Math.random() * descs.length)] ?? descs[0]!;
+
+  const event: SimEvent = {
+    id: `bond_${conduit.id}_${agentId}_${state.tick}`,
+    tick: state.tick,
+    day: state.day,
+    type: eventType,
+    involvedAgents: [agentId],
+    location: { ...conduit.position },
+    description,
+    narrativeWeight: bondType === 'light' ? 0.92 : 0.95,
+    threadRelevant: [agent.familyName],
+  };
+
+  events.push(event);
+}
+
+function updateBondStrength(conduit: ConduitBeing, state: WorldState, events: SimEvent[]): void {
+  if (conduit.bondedAgentId === null) return;
+
+  const bonded = findAgentById(state, conduit.bondedAgentId);
+  if (bonded === undefined || !bonded.alive) {
+    // Agent died — break bond
+    const event: SimEvent = {
+      id: `bond_broken_${conduit.id}_${state.tick}`,
+      tick: state.tick,
+      day: state.day,
+      type: EventType.ConduitBondBroken,
+      involvedAgents: [conduit.bondedAgentId],
+      location: { ...conduit.position },
+      description: `The creature that had bonded with ${conduit.bondedAgentId} was seen alone at dawn, still as stone.`,
+      narrativeWeight: 0.75,
+      threadRelevant: [],
+    };
+    events.push(event);
+    conduit.bondedAgentId = null;
+    conduit.bondType = null;
+    conduit.bondStrength = 0;
     return;
   }
 
-  const distance = manhattanDistance(
-    companion.position.x,
-    companion.position.y,
-    bondedAgent.position.x,
-    bondedAgent.position.y,
+  const dist = manhattanDistance(
+    conduit.position.x, conduit.position.y,
+    bonded.position.x, bonded.position.y,
   );
-
-  if (distance <= BOND_NEAR_DISTANCE) {
-    companion.bondStrength = clamp01(
-      companion.bondStrength + BOND_STRENGTH_GAIN,
-    );
-  } else if (distance > BOND_FAR_DISTANCE) {
-    companion.bondStrength = clamp01(
-      companion.bondStrength - BOND_STRENGTH_DECAY,
-    );
+  if (dist <= BOND_NEAR_DISTANCE) {
+    conduit.bondStrength = clamp01(conduit.bondStrength + BOND_STRENGTH_GAIN);
+  } else if (dist > BOND_FAR_DISTANCE) {
+    conduit.bondStrength = clamp01(conduit.bondStrength - BOND_STRENGTH_DECAY);
   }
 }
 
 // ============================================================
-// MAIN EXPORT
+// SIGNIFICANCE MULTIPLIER
 // ============================================================
 
-export function tickCompanion(state: WorldState): void {
-  const companion = state.companion;
-  if (!companion.alive) return;
+export function applyConduitSignificanceMultipliers(state: WorldState): void {
+  for (const conduit of state.conduits) {
+    if (conduit.bondedAgentId === null) continue;
+    const agent = findAgentById(state, conduit.bondedAgentId);
+    if (agent === undefined || !agent.alive) continue;
 
-  tickCompanionDrives(companion, state);
-  moveCompanion(companion, state);
-  updateProximityHistory(companion, state);
-  updateBondStrength(companion, state);
+    const multiplier =
+      conduit.bondType === 'dark'
+        ? DARK_BOND_SIGNIFICANCE_MULTIPLIER
+        : LIGHT_BOND_SIGNIFICANCE_MULTIPLIER;
+
+    agent.significanceScore = Math.min(1.0, agent.significanceScore * multiplier);
+  }
 }
 
-export function getCompanionProximityRecord(
-  companion: CompanionBeing,
-  agentId: string,
-): AgentProximityRecord | undefined {
-  return companion.agentProximityHistory.find(
-    (record) => record.agentId === agentId,
-  );
-}
+// ============================================================
+// MAIN TICK EXPORT
+// ============================================================
 
-export function createCompanion(
-  companionStart: { x: number; y: number },
-  tiles: TileCache,
-): CompanionBeing {
-  const tile = getTile(tiles, companionStart.x, companionStart.y);
-  if (tile !== undefined) {
-    tile.companionPresent = true;
+/**
+ * tickAllConduits
+ *
+ * Called once per simulation tick. Ticks every one of the 75 Conduits.
+ * Returns new SimEvents generated this tick (sightings, bonds, bond breaks).
+ * Caller is responsible for appending these to state.eventLog.
+ */
+export function tickAllConduits(state: WorldState): SimEvent[] {
+  const newEvents: SimEvent[] = [];
+
+  for (const conduit of state.conduits) {
+    tickConduitDrives(conduit, state);
+    moveConduit(conduit, state);
+    updateProximityHistory(conduit, state);
+    maybeLogSighting(conduit, state, newEvents);
+    updateBondStrength(conduit, state, newEvents);
+
+    // Check for new bond — only unbonded Conduits
+    if (conduit.bondedAgentId === null) {
+      const eligible = checkBondEligibility(conduit, state);
+      if (eligible !== null) {
+        executeBond(conduit, eligible.agentId, eligible.type, state, newEvents);
+      }
+    }
   }
 
-  return {
-    id: 'companion_0',
-    position: companionStart,
-    alive: true,
-    drives: { curiosity: 0.6, fear: 0.7, proximity: 0 },
-    bondedAgentId: null,
-    bondStrength: 0,
-    agentProximityHistory: [],
-    heldArtifactId: null,
-  };
+  // Apply significance multipliers after all bonds are processed this tick
+  applyConduitSignificanceMultipliers(state);
+
+  return newEvents;
+}
+
+// ============================================================
+// FACTORY
+// ============================================================
+
+/**
+ * createConduits
+ *
+ * Called once at world generation. Takes the conduits array from
+ * generateWorld() and stamps their initial tile positions into the TileCache.
+ * Returns the same array — no data is changed, only tile state is updated.
+ */
+export function createConduits(conduits: ConduitBeing[], state: WorldState): ConduitBeing[] {
+  for (const conduit of conduits) {
+    const tile = getTile(state.tiles, conduit.position.x, conduit.position.y);
+    if (tile !== undefined && !tile.conduitIds.includes(conduit.id)) {
+      tile.conduitIds.push(conduit.id);
+    }
+  }
+  return conduits;
 }

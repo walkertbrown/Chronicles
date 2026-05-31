@@ -4,7 +4,7 @@
 // builds the full grid. It provides constants and starting positions only.
 
 import seedrandom from 'seedrandom';
-import { Season } from '@shared/types.js';
+import { Season, type ConduitBeing } from '@shared/types.js';
 import { TileCacheImpl, createTileCache } from './tileCache.js';
 
 // ============================================================
@@ -42,17 +42,79 @@ function rInt(rng: RNG, min: number, max: number): number {
 
 export interface GeneratedWorld {
   tiles: TileCacheImpl;
-  companionStart: { x: number; y: number };
+  conduits: ConduitBeing[];
   vesselStart: { x: number; y: number };
   landingZone: { xMin: number; xMax: number; y: number };
   startingSeason: Season;
 }
 
+// ============================================================
+// CONDUIT SPAWNING
+// ============================================================
+
+const CONDUIT_COUNT = 75;
+
+/**
+ * Spawn 75 Conduits across the interior of the new world.
+ *
+ * Distribution rules (from spec):
+ * - Not at the landing coast — they are here before the settlers and
+ *   watch from a distance at first
+ * - Weighted toward mid-distance and interior — curious about the land,
+ *   drawn toward ancient density gradients
+ * - None in the far-north ruin zone initially — that discovery belongs
+ *   to agents who earn it
+ * - Spread across x-axis to avoid clustering
+ */
+function spawnConduits(rng: RNG): ConduitBeing[] {
+  const conduits: ConduitBeing[] = [];
+
+  // Y bands: coast is COAST_ROW (1499). Interior runs north (lower y values).
+  // Conduits avoid the southern 15% (landing zone) and the northern 10% (deep ruins).
+  const yMin = Math.floor(COAST_ROW * 0.10);  // ~150 — far interior but not ruin tip
+  const yMax = Math.floor(COAST_ROW * 0.82);  // ~1229 — well away from landing coast
+
+  for (let i = 0; i < CONDUIT_COUNT; i++) {
+    // Spread x deterministically across the full width with jitter
+    const xBase = Math.floor((i / CONDUIT_COUNT) * MAP_WIDTH);
+    const xJitter = Math.floor((rng() - 0.5) * (MAP_WIDTH / CONDUIT_COUNT) * 1.5);
+    const x = Math.max(10, Math.min(MAP_WIDTH - 10, xBase + xJitter));
+
+    // Y weighted toward mid-interior — Conduits gather where ancient density is higher
+    // Use a beta-like distribution: most land in the middle third
+    const r1 = rng();
+    const r2 = rng();
+    const yNorm = (r1 + r2) / 2; // average of two randoms — peaks in middle
+    const y = Math.floor(yMin + yNorm * (yMax - yMin));
+
+    const conduit: ConduitBeing = {
+      id: `conduit_${i}`,
+      position: { x, y },
+      drives: {
+        curiosity: 0.55 + rng() * 0.30,  // 0.55–0.85 — they are curious by nature
+        fear: 0.55 + rng() * 0.20,       // 0.55–0.75 — cautious of new arrivals
+        proximity: 0,
+      },
+      bondedAgentId: null,
+      bondType: null,
+      bondStrength: 0,
+      agentProximityHistory: [],
+      heldArtifactId: null,
+      sightingCount: 0,
+      lastSightingTick: null,
+    };
+
+    conduits.push(conduit);
+  }
+
+  return conduits;
+}
+
 /**
  * generateWorld
  *
- * Creates a TileCacheImpl pre-warmed with the starting coastal zone.
- * The full 3000x1502 world is generated on demand as agents explore.
+ * Creates a TileCacheImpl pre-warmed with the starting coastal zone,
+ * and spawns 75 Conduit beings distributed across the interior.
  * Same seed always produces the same world.
  *
  * @param seed  Any integer. Same seed always produces the same map.
@@ -70,11 +132,8 @@ export function generateWorld(seed: number): GeneratedWorld {
     y: VESSEL_ROW_START,
   };
 
-  // Companion starts somewhere in the mid-map interior
-  // We pick a deterministic position from the seed
-  const companionX = rInt(rng, Math.floor(MAP_WIDTH * 0.3), Math.floor(MAP_WIDTH * 0.7));
-  const companionY = rInt(rng, Math.floor(COAST_ROW * 0.3), Math.floor(COAST_ROW * 0.6));
-  const companionStart = { x: companionX, y: companionY };
+  // Spawn all 75 Conduits
+  const conduits = spawnConduits(rng);
 
   // Landing zone: center strip of the coast row
   const landingZone = {
@@ -88,5 +147,5 @@ export function generateWorld(seed: number): GeneratedWorld {
   const seasons: Season[] = [Season.Spring, Season.Summer, Season.Autumn, Season.Winter];
   const startingSeason = seasons[seasonIndex] ?? Season.Spring;
 
-  return { tiles, companionStart, vesselStart, landingZone, startingSeason };
+  return { tiles, conduits, vesselStart, landingZone, startingSeason };
 }

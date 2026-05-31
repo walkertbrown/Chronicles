@@ -16,7 +16,7 @@ import {
   snapshotTraits,
 } from './agents/traits.js';
 import { detectDeaths, getTopAgentsBySignificance, tickSignificance } from './agents/significance.js';
-import { checkBondEligibility, createCompanion, tickCompanion } from './companions/being.js';
+import { createConduits, tickAllConduits } from './companions/being.js';
 import {
   logDeathEvent,
   logEvent,
@@ -76,9 +76,8 @@ const TRAIT_KEYS = [
 export function createWorldState(seed: number, worldId: string): WorldState {
   const world = generateWorld(seed);
   const { agents, vessel } = initializeAgents(world, seed);
-  const companion = createCompanion(world.companionStart, world.tiles);
 
-  return {
+  const state: WorldState = {
     worldId,
     seed,
     tick: 0,
@@ -88,7 +87,7 @@ export function createWorldState(seed: number, worldId: string): WorldState {
     ticksInCurrentSeason: 0,
     agents,
     tiles: world.tiles,
-    companion,
+    conduits: world.conduits,
     vessel,
     eventLog: [],
     chroniclePages: [],
@@ -97,6 +96,9 @@ export function createWorldState(seed: number, worldId: string): WorldState {
     lastSummaryGeneratedAt: null,
     latestSummary: null,
   };
+
+  state.conduits = createConduits(world.conduits, state);
+  return state;
 }
 
 // ============================================================
@@ -382,25 +384,12 @@ export function tick(state: WorldState, rng: () => number): TickSummary {
     .slice(agentCountBeforeBirths)
     .map((agent) => agent.id);
 
-  tickCompanion(state);
-
-  const bondCandidate = checkBondEligibility(state.companion, state);
-  if (bondCandidate !== null) {
-    const candidateAgent = findAgent(state, bondCandidate);
-    if (candidateAgent !== undefined) {
-      logEvent(
-        state,
-        EventType.CompanionApproach,
-        [bondCandidate],
-        {
-          x: state.companion.position.x,
-          y: state.companion.position.y,
-        },
-        `${candidateAgent.name} ${candidateAgent.familyName} and the companion being have grown close.`,
-        [candidateAgent.familyName],
-        0.65,
-      );
-    }
+  const conduitEvents = tickAllConduits(state);
+  for (const event of conduitEvents) {
+    state.eventLog.push(event);
+  }
+  if (state.eventLog.length > 500) {
+    state.eventLog = state.eventLog.slice(-500);
   }
 
   const chronicleBefore = new Set(

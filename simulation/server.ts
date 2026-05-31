@@ -52,11 +52,12 @@ function buildStateSnapshot(state: WorldState): {
     illnessState: IllnessState | null;
     relationships: Array<{ agentId: string; trust: number; bond: string }>;
   }>;
-  companion: {
+  conduits: Array<{
+    id: string;
     position: { x: number; y: number };
-    alive: boolean;
-    bondedAgentId: string | null;
-  };
+    bondedAgentId: string;
+    bondType: 'light' | 'dark';
+  }>;
   tiles: Array<{
     x: number;
     y: number;
@@ -74,7 +75,7 @@ function buildStateSnapshot(state: WorldState): {
   }> = [];
 
   for (const tile of state.tiles.getDirtyTiles().values()) {
-    if (tile.occupants.length === 0 && !tile.companionPresent) continue;
+    if (tile.occupants.length === 0 && tile.conduitIds.length === 0) continue;
     tiles.push({
       x: tile.x,
       y: tile.y,
@@ -115,11 +116,16 @@ function buildStateSnapshot(state: WorldState): {
         bond: rel.bond,
       })),
     })),
-    companion: {
-      position: { ...state.companion.position },
-      alive: state.companion.alive,
-      bondedAgentId: state.companion.bondedAgentId,
-    },
+    conduits: state.conduits
+      .filter((c): c is typeof c & { bondedAgentId: string; bondType: 'light' | 'dark' } =>
+        c.bondedAgentId !== null && c.bondType !== null,
+      )
+      .map((c) => ({
+        id: c.id,
+        position: { ...c.position },
+        bondedAgentId: c.bondedAgentId,
+        bondType: c.bondType,
+      })),
     tiles,
   };
 }

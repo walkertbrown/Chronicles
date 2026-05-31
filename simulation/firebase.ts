@@ -63,6 +63,10 @@ export async function writeCheckpoint(state: WorldState): Promise<void> {
         illnessState: a.illnessState,
         lineage: a.lineage,
         foundingHistory: a.foundingHistory,
+        conduitId: a.conduitId,
+        conduitBondType: a.conduitBondType,
+        lastChroniclePageMention: a.lastChroniclePageMention,
+        healthScore: a.healthScore,
         relationships: a.relationships,
         recentEvents: a.recentEvents.slice(-10),
         starvationTick: a.starvationTick,
@@ -72,7 +76,7 @@ export async function writeCheckpoint(state: WorldState): Promise<void> {
         animalAttackTick: a.animalAttackTick,
       })),
       vessel: state.vessel,
-      companion: state.companion,
+      conduits: state.conduits,
       tiles: state.tiles.serialize(),
       chroniclePages: state.chroniclePages,
       latestSummary: state.latestSummary,
@@ -113,11 +117,14 @@ export async function writeAgentPositions(state: WorldState): Promise<void> {
           hunger: a.drives.hunger,
           fear: a.drives.fear,
         })),
-      companion: {
-        position: state.companion.position,
-        alive: state.companion.alive,
-        bondedAgentId: state.companion.bondedAgentId,
-      },
+      conduits: state.conduits
+        .filter((c) => c.bondedAgentId !== null)
+        .map((c) => ({
+          id: c.id,
+          position: c.position,
+          bondedAgentId: c.bondedAgentId,
+          bondType: c.bondType,
+        })),
     });
   } catch (err) {
     // Non-blocking — don't crash the tick loop

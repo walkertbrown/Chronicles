@@ -62,6 +62,10 @@ export enum EventType {
   ResourceCrisis = 'resource_crisis',
   IllnessBegan = 'illness_began',
   IllnessRecovered = 'illness_recovered',
+  ConduitSighting = 'conduit_sighting',       // Conduit observed near agents — background chronicle color
+  ConduitBondLight = 'conduit_bond_light',    // Light bond formed — major narrative event
+  ConduitBondDark = 'conduit_bond_dark',      // Dark bond formed — major narrative event, shifted register
+  ConduitBondBroken = 'conduit_bond_broken',  // Bond broken by agent death
 }
 
 // ============================================================
@@ -184,7 +188,8 @@ export interface Agent {
 
   foundingHistory: FoundingHistory | null   // null for generation 1+
 
-  companionId: string | null                // null until bonded
+  conduitId: string | null                  // null until bonded to a Conduit
+  conduitBondType: 'light' | 'dark' | null  // null until bonded; set at bond formation
 
   significanceScore: number                 // Recalculated every tick
   chronicleThreadActive: boolean
@@ -231,36 +236,44 @@ export interface WorldTile {
   ancientDensity: number    // 0.0–1.0. Higher closer to ruins and source
   artifacts: Artifact[]
   occupants: string[]       // Agent ids currently on this tile
-  companionPresent: boolean
+  conduitIds: string[]      // Conduit ids currently on this tile (replaces companionPresent)
 }
 
 // ============================================================
-// COMPANION BEING
+// CONDUIT BEINGS
+// 75 fixed beings. Do not reproduce. Do not die.
+// Untracked unless bonded — no position in frontend until bond forms.
 // ============================================================
 
 export interface AgentProximityRecord {
   agentId: string
-  totalTicks: number    // How many ticks spent near this agent
-  fearSpikes: number    // How many times this agent triggered companion fear
+  totalTicks: number    // How many ticks spent near this Conduit
+  fearSpikes: number    // How many times this agent triggered Conduit fear
 }
 
-export interface CompanionBeing {
-  id: string
+export type ConduitBondType = 'light' | 'dark'
+
+export interface ConduitBeing {
+  id: string            // 'conduit_0' through 'conduit_74'
   position: { x: number; y: number }
-  alive: boolean
 
   drives: {
-    curiosity: number   // Draws it toward novel things
+    curiosity: number   // Draws it toward humans and novel things
     fear: number        // Spikes near threatening agents
     proximity: number   // Pulls toward bonded agent if bonded
   }
 
   bondedAgentId: string | null
-  bondStrength: number              // 0.0–1.0. Builds over time with correct agent
+  bondType: ConduitBondType | null    // null until bonded; set at bond formation
+  bondStrength: number                // 0.0–1.0. Builds over time once bonded
 
   agentProximityHistory: AgentProximityRecord[]
 
-  heldArtifactId: string | null     // Artifact currently being held/imprinted
+  heldArtifactId: string | null       // Artifact currently being imprinted
+
+  // Sighting tracking — feeds chronicle background color
+  sightingCount: number               // Total times logged as a sighting event
+  lastSightingTick: number | null     // Tick of most recent sighting log
 }
 
 // ============================================================
@@ -381,7 +394,7 @@ export interface WorldState {
   ticksInCurrentSeason: number   // resets to 0 each time the season advances
   agents: Agent[]
   tiles: TileCache          // Sparse on-demand tile cache. See simulation/world/tileCache.ts
-  companion: CompanionBeing
+  conduits: ConduitBeing[]  // All 75 Conduit beings. Positions tracked always; frontend only receives bonded ones.
   vessel: VesselState
   eventLog: SimEvent[]      // Last 500 events
   chroniclePages: ChronicleEntry[]   // all generated chronicle pages, newest last

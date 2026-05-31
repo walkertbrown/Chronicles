@@ -28,6 +28,10 @@ const NARRATIVE_WEIGHTS: Record<EventType, number> = {
   [EventType.ResourceCrisis]: 0.68,
   [EventType.IllnessBegan]: 0.62,
   [EventType.IllnessRecovered]: 0.45,
+  [EventType.ConduitSighting]: 0.35,
+  [EventType.ConduitBondLight]: 0.92,
+  [EventType.ConduitBondDark]: 0.95,
+  [EventType.ConduitBondBroken]: 0.75,
 };
 
 // ============================================================

@@ -266,7 +266,7 @@ function generateTile(
     ancientDensity,
     artifacts: placeArtifacts(terrain, x, y, ancientDensity, rng),
     occupants: [],
-    companionPresent: false,
+    conduitIds: [],
   };
 }
 

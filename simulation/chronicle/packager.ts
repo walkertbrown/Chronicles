@@ -7,7 +7,6 @@ import { EventType, Terrain } from '@shared/types.js';
 import { TICKS_PER_DAY, isStarving, starvationUrgency } from '../agents/drives.js';
 import { isSick, illnessSeverity } from '../agents/illness.js';
 import { getTopAgentsBySignificance } from '../agents/significance.js';
-import { getCompanionProximityRecord } from '../companions/being.js';
 import { getRecentEventsForAgent, getSignificantRecentEvents } from '../events/log.js';
 import { COAST_ROW } from '../world/generator.js';
 import { getTile, getTilesInRange, manhattanDistance } from '../world/tiles.js';
@@ -74,6 +73,8 @@ export interface ThreadPackage {
 
     companionProximityNarrative: string;
     companionBonded: boolean;
+    conduitBondType: 'light' | 'dark' | null;
+    conduitEvents: Array<{ tick: number; description: string; weight: number; type: EventType }>;
   };
   supportingCast: SupportingCharacter[];
   worldContext: WorldContext;
@@ -83,7 +84,12 @@ export interface ThreadPackage {
 // CONSTANTS
 // ============================================================
 
-const DRIVE_INCLUDE_THRESHOLD = 0.15;
+const CONDUIT_EVENT_TYPES = new Set<EventType>([
+  EventType.ConduitSighting,
+  EventType.ConduitBondLight,
+  EventType.ConduitBondDark,
+  EventType.ConduitBondBroken,
+]);
 const PRIMARY_TRAIT_THRESHOLD = 0.65;
 const SUPPORTING_TRAIT_THRESHOLD = 0.7;
 const EVENT_RECENCY_WINDOW = 96;
@@ -377,20 +383,56 @@ function describeHealthState(agent: Agent): string {
   return 'Near death from age or illness.';
 }
 
-function describeCompanionProximity(totalTicks: number): string {
+function describeConduitProximity(totalTicks: number): string {
   if (totalTicks <= 0) return '';
 
   if (totalTicks < TICKS_PER_DAY) {
-    return 'The companion being has been seen near this person today.';
+    return 'A Conduit has been seen near this person today.';
   }
 
   const days = Math.floor(totalTicks / TICKS_PER_DAY);
   if (days === 1) {
-    return 'The companion being has lingered near this person for a day.';
+    return 'A Conduit has lingered near this person for a day.';
   }
 
-  return `The companion being has lingered near this person for ${days} days.`;
+  return `A Conduit has lingered near this person for ${days} days.`;
 }
+
+function getConduitProximityTicks(state: WorldState, agentId: string): number {
+  let maxTicks = 0;
+  for (const conduit of state.conduits) {
+    const record = conduit.agentProximityHistory.find((entry) => entry.agentId === agentId);
+    if (record !== undefined && record.totalTicks > maxTicks) {
+      maxTicks = record.totalTicks;
+    }
+  }
+  return maxTicks;
+}
+
+function collectConduitEvents(
+  state: WorldState,
+  agentId: string,
+  eventWindow: number,
+): Array<{ tick: number; description: string; weight: number; type: EventType }> {
+  return eventsSinceTick(state, eventWindow)
+    .filter(
+      (event) =>
+        CONDUIT_EVENT_TYPES.has(event.type) &&
+        event.involvedAgents.includes(agentId),
+    )
+    .map((event) => ({
+      tick: event.tick,
+      description: event.description,
+      weight:
+        event.type === EventType.ConduitSighting
+          ? event.narrativeWeight
+          : Math.max(event.narrativeWeight, 0.9),
+      type: event.type,
+    }))
+    .sort((a, b) => b.tick - a.tick);
+}
+
+const DRIVE_INCLUDE_THRESHOLD = 0.15;
 
 function collectRecentEvents(
   state: WorldState,
@@ -671,7 +713,6 @@ function packThread(
   eventWindow: number,
 ): ThreadPackage {
   const recentEvents = collectRecentEvents(state, agent, eventWindow);
-  const proximityRecord = getCompanionProximityRecord(state.companion, agent.id);
 
   return {
     familyName: agent.familyName,
@@ -697,10 +738,12 @@ function packThread(
       hungerNarrative: describeHungerState(agent, state),
       sicknessNarrative: describeSicknessState(agent, state),
       healthNarrative: describeHealthState(agent),
-      companionProximityNarrative: describeCompanionProximity(
-        proximityRecord?.totalTicks ?? 0,
+      companionProximityNarrative: describeConduitProximity(
+        getConduitProximityTicks(state, agent.id),
       ),
-      companionBonded: state.companion.bondedAgentId === agent.id,
+      companionBonded: agent.conduitId !== null,
+      conduitBondType: agent.conduitBondType,
+      conduitEvents: collectConduitEvents(state, agent.id, eventWindow),
     },
     supportingCast: buildSupportingCast(state, agent, eventWindow),
     worldContext,

@@ -242,8 +242,20 @@ function formatThreadBlock(pkg: ThreadPackage, hasLanded: boolean): string {
     lines.push(a.companionProximityNarrative);
   }
 
+  if (a.conduitEvents.length > 0) {
+    lines.push('');
+    lines.push('Conduit events (background color and bond moments):');
+    for (const event of a.conduitEvents) {
+      lines.push(event.description);
+    }
+  }
+
   if (a.companionBonded) {
-    lines.push('The companion being has bonded to this person.');
+    if (a.conduitBondType === 'dark') {
+      lines.push('A Conduit has bonded to this person — something in the bond feels wrong, changed.');
+    } else {
+      lines.push('A Conduit has bonded to this person.');
+    }
   }
 
   lines.push('');
@@ -375,6 +387,15 @@ Name them. Return to them. Let them speak. Let them act.
 When someone dies, name them and feel the absence.
 When someone new appears in the data, introduce them as a novelist would —
 one true detail that makes them real.
+
+Conduit beings: when Conduit sighting events appear in the data, render them as
+background color — luminous creatures at the edge of vision, watched from tree
+cover, present at dusk. Do not name them individually unless a bond has formed.
+When a Conduit bond event appears (light or dark), treat it as a major narrative
+moment with full weight. A light bond is wonder and recognition — something
+sacred arriving quietly. A dark bond shifts the register: something is wrong,
+something has changed; the prose should feel it before the chronicle names it.
+A broken bond is grief — name what was lost.
 
 This is what the chronicle sounds like when it is working:
 

@@ -85,12 +85,12 @@ function computeGroupMedianPosition(agents: Agent[]): { x: number; y: number } {
   return { x: median(xs), y: median(ys) };
 }
 
-function hasCompanionNearby(agent: Agent, state: WorldState): boolean {
+function hasConduitNearby(agent: Agent, state: WorldState): boolean {
   const { x, y } = agent.position;
   const centerTile = getTile(state.tiles, x, y);
-  if (centerTile?.companionPresent) return true;
+  if (centerTile !== undefined && centerTile.conduitIds.length > 0) return true;
   return getTilesInRange(state.tiles, x, y, 3).some(
-    (tile) => tile.companionPresent,
+    (tile) => tile.conduitIds.length > 0,
   );
 }
 
@@ -156,7 +156,7 @@ function computeBehavioralDeviation(agent: Agent, state: WorldState): number {
     score += starvationUrgency(agent, state.tick) * STARVATION_DEVIATION_BONUS;
   }
 
-  if (hasCompanionNearby(agent, state)) {
+  if (hasConduitNearby(agent, state)) {
     score += COMPANION_PROXIMITY_BONUS;
   }
 
