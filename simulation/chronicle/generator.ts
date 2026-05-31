@@ -74,7 +74,7 @@ function buildPrologueEntry(worldId: string, createdAt: string): ChronicleEntry 
   };
 }
 
-async function ensurePrologueSeeded(state: WorldState): Promise<void> {
+export async function ensurePrologueSeeded(state: WorldState): Promise<void> {
   if (!(await isChronicleCollectionEmpty(state.worldId))) {
     return;
   }

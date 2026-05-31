@@ -4,7 +4,7 @@
 import 'dotenv/config';
 import seedrandom from 'seedrandom';
 import { createWorldState, tick } from './tick.js';
-import { generateChronicle, shouldGenerateChronicle } from './chronicle/generator.js';
+import { generateChronicle, shouldGenerateChronicle, ensurePrologueSeeded } from './chronicle/generator.js';
 import { generateSummary, shouldGenerateSummary } from './summary/generator.js';
 import { startServer } from './server.js';
 import { writeCheckpoint, writeAgentPositions, loadCheckpoint } from './firebase.js';
@@ -32,6 +32,8 @@ async function main(): Promise<void> {
   console.log('World created. Starting simulation...');
   console.log(`Seed: ${SEED}`);
   console.log(`Starting season: ${state.season}`);
+
+  await ensurePrologueSeeded(state);
 
   for (let i = 0; i < TARGET_TICKS; i++) {
     const tickResult = tick(state, rng);

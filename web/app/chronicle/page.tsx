@@ -155,10 +155,26 @@ export default function ChroniclePage() {
   // ── empty state ──
   if (pages.length === 0) {
     return (
-      <div style={{ background: c.base, color: c.textFaint, minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, textAlign: 'center' }}>
-        <Seal size={56} glyph="◉" />
-        <p style={{ fontFamily: f.serif, fontStyle: 'italic', fontSize: 18, color: c.textDim, margin: '14px 0 0' }}>The chronicle has not yet begun.</p>
-        <p style={{ fontFamily: f.serif, fontStyle: 'italic', fontSize: 18, color: c.textFaint, margin: 0 }}>The vessel is still at sea.</p>
+      <div style={{ background: c.base, color: c.textFaint, minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+        <Masthead current="chronicle" sticky />
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 10,
+            textAlign: 'center',
+            padding: '24px',
+          }}
+        >
+          <Seal size={56} glyph="◉" />
+          <p style={{ fontFamily: f.serif, fontStyle: 'italic', fontSize: 18, color: c.textDim, margin: '14px 0 0' }}>
+            The chronicle has not yet begun.
+          </p>
+          <p style={{ fontFamily: f.serif, fontStyle: 'italic', fontSize: 18, color: c.textFaint, margin: 0 }}>The vessel is still at sea.</p>
+        </div>
       </div>
     );
   }
