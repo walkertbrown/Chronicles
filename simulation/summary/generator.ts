@@ -72,7 +72,7 @@ export async function generateSummary(
     agentsToWatch: pkg.agentsToWatch.map((a) => ({
       agentId: '',
       name: a.name,
-      note: a.state,
+      note: a.action,
     })),
     building: pkg.dominantTension,
   };
