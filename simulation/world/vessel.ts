@@ -24,8 +24,9 @@ const INTEGRITY_DECAY_HIGH = 0.05;
 const INTEGRITY_DECAY_NORMAL = 0.02;
 const HIGH_DECAY_TICKS = 10;
 
-const LANDING_EVAL_START_TICK = 20;
-const LANDING_SCORE_THRESHOLD = 0.55;
+const LANDING_EVAL_START_TICK = 5;
+const LANDING_SCORE_THRESHOLD = 0.35;
+const LANDING_FORCE_TICK = 150;
 const LANDING_NARRATIVE_WEIGHT = 0.92;
 
 /** Building skill contribution per tick when adjacent to the hull. */
@@ -276,6 +277,7 @@ export function shouldTriggerLanding(state: WorldState): boolean {
 
   // Structural failure forces landfall regardless of helmsman's judgment.
   if (state.vessel.integrity <= 0) return true;
+  if (state.tick >= LANDING_FORCE_TICK) return true;
 
   return computeLandingScore(state) >= LANDING_SCORE_THRESHOLD;
 }
