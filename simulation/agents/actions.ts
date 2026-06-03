@@ -179,6 +179,7 @@ function getDominantDrive(agent: Agent): keyof Drives | null {
 
 function markDiscovered(agent: Agent, x: number, y: number): boolean {
   const id = tileId(x, y);
+  if (!agent.discoveredTileIds) agent.discoveredTileIds = [];
   if (agent.discoveredTileIds.includes(id)) return false;
   agent.discoveredTileIds.push(id);
   return true;
