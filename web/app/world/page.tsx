@@ -342,7 +342,7 @@ export default function WorldPage() {
             {worldSnapshot !== null &&
               worldSnapshot.vessel.beached &&
               worldSnapshot.agents
-                .filter((a) => a.alive && a.position.y < 30)
+                .filter((a) => a.alive)
                 .map((agent) => {
                   const [cx, cy] = tileToSvg(agent.position.x, agent.position.y);
                   const act = agent.chronicleThreadActive;
