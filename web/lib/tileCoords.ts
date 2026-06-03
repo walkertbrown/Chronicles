@@ -11,10 +11,38 @@ export const VESSEL_COORDS: Record<number, [number, number]> = {
   31: [700, 658],
 };
 
+const SIM_W = 3000;
+const SIM_H = 1502;
+const COAST_Y = 1499;
+const VESSEL_Y_START = 1500;
+
+// Land area bounds within the SVG (from visual inspection of map.svg)
+const LAND_SVG_X_MIN = 168;
+const LAND_SVG_X_MAX = 1257;
+const LAND_SVG_Y_MIN = 96;
+const LAND_SVG_Y_MAX = 616;
+
+// Coast SVG Y position
+const COAST_SVG_Y = 630;
+
+// Vessel SVG position (below coast)
+const VESSEL_SVG_Y = 658;
+
 export function tileToSvg(tileX: number, tileY: number): [number, number] {
-  if (tileY >= 30) {
-    return VESSEL_COORDS[tileY] ?? [700, 635];
+  // Vessel zone
+  if (tileY >= VESSEL_Y_START) {
+    const svgX = LAND_SVG_X_MIN + (tileX / SIM_W) * (LAND_SVG_X_MAX - LAND_SVG_X_MIN);
+    return [svgX, VESSEL_SVG_Y];
   }
-  const idx = Math.min(899, Math.max(0, tileY * 30 + tileX));
-  return TILE_COORDS[idx] ?? [668, 356];
+
+  // Coast row
+  if (tileY >= COAST_Y) {
+    const svgX = LAND_SVG_X_MIN + (tileX / SIM_W) * (LAND_SVG_X_MAX - LAND_SVG_X_MIN);
+    return [svgX, COAST_SVG_Y];
+  }
+
+  // Land — proportional mapping
+  const svgX = LAND_SVG_X_MIN + (tileX / SIM_W) * (LAND_SVG_X_MAX - LAND_SVG_X_MIN);
+  const svgY = LAND_SVG_Y_MIN + (tileY / COAST_Y) * (LAND_SVG_Y_MAX - LAND_SVG_Y_MIN);
+  return [svgX, svgY];
 }
