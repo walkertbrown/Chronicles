@@ -20,10 +20,10 @@ const VESSEL_Y_START = 1500;
 const LAND_SVG_X_MIN = 168;
 const LAND_SVG_X_MAX = 1257;
 const LAND_SVG_Y_MIN = 96;
-const LAND_SVG_Y_MAX = 616;
+const LAND_SVG_Y_MAX = 540;
 
 // Coast SVG Y position
-const COAST_SVG_Y = 630;
+const COAST_SVG_Y = 555;
 
 // Vessel SVG position (below coast)
 const VESSEL_SVG_Y = 658;
