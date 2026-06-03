@@ -16,7 +16,7 @@ const VESSEL_Y_START = 1500;
 const LAND_SVG_X_MIN = 70;
 const LAND_SVG_X_MAX = 1281;
 const LAND_SVG_Y_MIN = 41;
-const LAND_SVG_Y_MAX = 645;
+const LAND_SVG_Y_MAX = 440;
 const VESSEL_SVG_Y = 668;
 
 // Terrain grid: 600x300 chars, one per cell
