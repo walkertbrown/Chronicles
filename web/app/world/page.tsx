@@ -9,7 +9,7 @@ import { tileToSvg, SVG_W, SVG_H } from '../../lib/tileCoords';
 import { oracle, EngravedBar, Kicker, SectionHead, Seal, GiltRings, Segmented, Masthead, VotePanel } from '../../lib/oracle';
 import { useViewport } from '../../lib/useViewport';
 import { AtlasMobile, type AtlasMode } from '../../lib/atlasMobile';
-import { LandingInset } from '../../lib/landingInset';
+import { LandingInset, landingWindowTiles } from '../../lib/landingInset';
 
 const c = oracle.c;
 const f = oracle.fonts;
@@ -325,6 +325,28 @@ export default function WorldPage() {
           >
             {/* the real map, served from public/ (not inlined) */}
             <image href="/map.svg" x={0} y={0} width={SVG_W} height={SVG_H} />
+
+            {/* locator box — the patch of coast the landing inset is watching */}
+            {worldSnapshot !== null &&
+              (() => {
+                const lw = landingWindowTiles(worldSnapshot);
+                if (lw === null) return null;
+                const [ax, ay] = tileToSvg(lw.x0, lw.y0);
+                const [bx, by] = tileToSvg(lw.x1, lw.y1);
+                return (
+                  <rect
+                    x={ax}
+                    y={ay}
+                    width={bx - ax}
+                    height={by - ay}
+                    fill={c.accent}
+                    fillOpacity={0.1}
+                    stroke={c.accent}
+                    strokeWidth={1.4 * mk}
+                    pointerEvents="none"
+                  />
+                );
+              })()}
 
             {/* vessel */}
             {worldSnapshot !== null &&

@@ -802,6 +802,7 @@ function pickExploreTile(agent: Agent, state: WorldState): WorldTile | undefined
     agent.position.y,
   ).filter((tile) => isPassable(tile.terrain, state.vessel.beached));
 
+  if (!agent.discoveredTileIds) agent.discoveredTileIds = [];
   const undiscovered = adjacent.filter(
     (tile) => !agent.discoveredTileIds.includes(tileId(tile.x, tile.y)),
   );
@@ -816,6 +817,7 @@ function pickExploreTile(agent: Agent, state: WorldState): WorldTile | undefined
     if (best !== undefined) return best;
   }
 
+  if (!agent.discoveredTileIds) agent.discoveredTileIds = [];
   const randomUndiscovered = undiscovered.filter(
     (tile) => !agent.discoveredTileIds.includes(tileId(tile.x, tile.y)),
   );

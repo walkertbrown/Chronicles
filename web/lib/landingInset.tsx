@@ -57,6 +57,19 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
+// The fixed sim-tile window the inset frames. Shared with the world map so it
+// can draw a locator box over the same patch of coast. null until the vessel
+// beaches (no landing site to frame yet).
+export function landingWindowTiles(
+  snapshot: WorldSnapshot | null,
+): { x0: number; y0: number; x1: number; y1: number } | null {
+  if (snapshot === null || !snapshot.vessel.beached) return null;
+  const cx = snapshot.vessel.position.x;
+  const cy = snapshot.vessel.position.y;
+  const x0 = clamp(cx - WIN_HALF_X, 0, Math.max(0, SIM_W - WIN_HALF_X * 2));
+  return { x0, y0: cy - WIN_NORTH, x1: x0 + WIN_HALF_X * 2, y1: cy + WIN_SOUTH };
+}
+
 export function LandingInset({
   snapshot,
   selectedId,
@@ -67,16 +80,14 @@ export function LandingInset({
   onSelect: (agent: AgentSnapshot) => void;
 }) {
   // The landing site only exists once the vessel beaches; before that nobody
-  // is ashore and there is nothing to frame.
-  const beached = snapshot?.vessel.beached === true;
-  const cx = snapshot?.vessel.position.x ?? 0;
-  const cy = snapshot?.vessel.position.y ?? 0;
-
-  // Window bounds in sim tiles (stable — depends only on the landing point).
-  const winX0 = clamp(cx - WIN_HALF_X, 0, Math.max(0, SIM_W - WIN_HALF_X * 2));
-  const winX1 = winX0 + WIN_HALF_X * 2;
-  const winY0 = cy - WIN_NORTH;
-  const winY1 = cy + WIN_SOUTH;
+  // is ashore and there is nothing to frame. Window bounds are shared with the
+  // world-map locator box via landingWindowTiles().
+  const win = landingWindowTiles(snapshot);
+  const beached = win !== null;
+  const winX0 = win?.x0 ?? 0;
+  const winY0 = win?.y0 ?? 0;
+  const winX1 = win?.x1 ?? WIN_HALF_X * 2;
+  const winY1 = win?.y1 ?? WIN_NORTH + WIN_SOUTH;
   const winW = winX1 - winX0;
   const winH = winY1 - winY0;
 
@@ -127,25 +138,34 @@ export function LandingInset({
 
   type Placed = { agent: AgentSnapshot; px: number; py: number };
   const placed: Placed[] = [];
+  // The band comes ashore right at the waterline (sim coast row), so a
+  // symmetric bloom would fan half its dots out into the rendered sea. For any
+  // pile that would reach the water, lift the whole bloom just enough to sit on
+  // the beach: its lowest dots touch the shore and the rest spill inland.
+  const shoreLimitPy = toPxY(snapshot.vessel.position.y + 0.5) - 1.5;
   for (const arr of groups.values()) {
     arr.sort((p, q) => p.id.localeCompare(q.id)); // stable order → no jitter
     const n = arr.length;
     const baseX = toPxX(arr[0]!.position.x + 0.5);
     const baseY = toPxY(arr[0]!.position.y + 0.5);
     const spread = spreadRadiusPx(n);
+    const shift = Math.max(0, baseY + spread - shoreLimitPy);
     for (let i = 0; i < n; i++) {
       const angle = i * GOLDEN_ANGLE;
       const r = spread * Math.sqrt((i + 0.5) / n);
       placed.push({
         agent: arr[i]!,
         px: baseX + r * Math.cos(angle),
-        py: baseY + r * Math.sin(angle),
+        py: baseY + r * Math.sin(angle) - shift,
       });
     }
   }
 
   const ashore = snapshot.agents.filter((a) => a.alive).length;
-  const [vpx, vpy] = [toPxX(cx + 0.5), toPxY(cy + 0.5)];
+  const [vpx, vpy] = [
+    toPxX(snapshot.vessel.position.x + 0.5),
+    toPxY(snapshot.vessel.position.y + 0.5),
+  ];
 
   return (
     <div
