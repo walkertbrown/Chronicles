@@ -9,6 +9,7 @@ import { tileToSvg, SVG_W, SVG_H } from '../../lib/tileCoords';
 import { oracle, EngravedBar, Kicker, SectionHead, Seal, GiltRings, Segmented, Masthead, VotePanel } from '../../lib/oracle';
 import { useViewport } from '../../lib/useViewport';
 import { AtlasMobile, type AtlasMode } from '../../lib/atlasMobile';
+import { LandingInset } from '../../lib/landingInset';
 
 const c = oracle.c;
 const f = oracle.fonts;
@@ -424,6 +425,16 @@ export default function WorldPage() {
             <Kicker>Consulting the simulation…</Kicker>
           </div>
         )}
+
+        {/* landing-zone watch window — see individuals while they're still clustered */}
+        <LandingInset
+          snapshot={worldSnapshot}
+          selectedId={selectedAgent?.id ?? null}
+          onSelect={(a) => {
+            setSelectedDeadAgent(null);
+            setSelectedAgent(a);
+          }}
+        />
       </div>
     </div>
   );
