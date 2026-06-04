@@ -62,8 +62,12 @@ const FISH_STOCK_TAKE = 0.1;    // food removed from the tile per successful cat
 const FISH_CROWDING_K = 0.2;    // success penalty per extra fisher on the same spot
 const FISH_RESIDUAL = 0.15;     // meagre shellfish baseline so a tapped shore isn't barren
 
-const COAST_HUNT_RADIUS = 15;
-const RIVER_FISH_RADIUS = 12;
+// How close to water an agent must be to fish: on the tile or directly
+// adjacent. Kept small so only the actual shoreline/riverbank fishes — anyone
+// further inland hunts or gathers instead, which fans the band's activity out
+// rather than funnelling everyone near the sea into fishing.
+const FISH_TRIGGER_RADIUS = 1;
+const RIVER_FISH_RADIUS = 12; // how far a fisher ranges along the water for a fuller stretch
 
 const SEASON_HUNT_MODIFIERS: Record<string, number> = {
   spring: 1.4,
@@ -959,7 +963,7 @@ function actionConflict(
 }
 
 function isNearCoast(agent: Agent, state: WorldState): boolean {
-  const tiles = getTilesInRange(state.tiles, agent.position.x, agent.position.y, COAST_HUNT_RADIUS);
+  const tiles = getTilesInRange(state.tiles, agent.position.x, agent.position.y, FISH_TRIGGER_RADIUS);
   return tiles.some((t) => t.terrain === Terrain.Coast) ||
     getTile(state.tiles, agent.position.x, agent.position.y)?.terrain === Terrain.Coast;
 }
@@ -967,7 +971,7 @@ function isNearCoast(agent: Agent, state: WorldState): boolean {
 function isOnOrNearRiver(agent: Agent, state: WorldState): boolean {
   const current = getTile(state.tiles, agent.position.x, agent.position.y);
   if (current?.terrain === Terrain.River) return true;
-  const tiles = getTilesInRange(state.tiles, agent.position.x, agent.position.y, RIVER_FISH_RADIUS);
+  const tiles = getTilesInRange(state.tiles, agent.position.x, agent.position.y, FISH_TRIGGER_RADIUS);
   return tiles.some((t) => t.terrain === Terrain.River);
 }
 

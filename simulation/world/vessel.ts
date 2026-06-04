@@ -377,19 +377,27 @@ export function executeLanding(state: WorldState): SimEvent {
     removeAgentFromTile(state.tiles, agent);
   }
 
-  // Spread agents across available coast tiles, centered on the landing site.
+  // Spread the party across a beachhead of coast tiles nearest the landing
+  // site rather than dumping everyone on one tile. Stacking them all on a
+  // single tile is what made the whole band forage as one blob; distinct
+  // starting points let central-place foraging fan them out from day one.
   if (coastSlots.length > 0) {
     coastSlots.sort(
       (a, b) =>
         Math.abs(a.x - landingSite.x) - Math.abs(b.x - landingSite.x),
     );
 
-    // Land all agents at the vessel landing site — they arrive as a group
-    const landingSlot = coastSlots[0] ?? landingSite;
-    for (const agent of agentsToMove) {
-      agent.position = { x: landingSlot.x, y: landingSlot.y };
-      addAgentToTile(state.tiles, agent, landingSlot.x, landingSlot.y);
-    }
+    // Use the nearest N slots (~2 agents per tile) so they land as a tight
+    // beachhead centred on the landing site, not strung along the whole coast.
+    const beachhead = Math.min(
+      coastSlots.length,
+      Math.max(8, Math.ceil(agentsToMove.length / 2)),
+    );
+    agentsToMove.forEach((agent, i) => {
+      const slot = coastSlots[i % beachhead] ?? coastSlots[0]!;
+      agent.position = { x: slot.x, y: slot.y };
+      addAgentToTile(state.tiles, agent, slot.x, slot.y);
+    });
   }
 
   // Clear offshore hull tiles; mark the beached hull on the coast.

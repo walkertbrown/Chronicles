@@ -147,6 +147,12 @@ export function findBestGameTile(
   return findBestResourceTile(tiles, fromX, fromY, radius, 'game');
 }
 
+// De-herding weights: foragers should prefer nearer, less-crowded patches.
+// Without these, every co-located agent computes the same global-argmax tile
+// and they all walk to it together — the band never breaks up.
+const DEHERD_DIST_PENALTY = 0.12; // discount per tile of distance (central-place foraging)
+const DEHERD_OCC_PENALTY = 0.5; // discount per agent already working the tile
+
 function findBestResourceTile(
   tiles: TileCache,
   fromX: number,
@@ -155,7 +161,7 @@ function findBestResourceTile(
   resource: 'food' | 'water' | 'game',
 ): WorldTile | undefined {
   let best: WorldTile | undefined;
-  let bestAmount = 0;
+  let bestScore = 0;
 
   const candidates = getTilesInRange(tiles, fromX, fromY, radius);
   const origin = getTile(tiles, fromX, fromY);
@@ -165,8 +171,18 @@ function findBestResourceTile(
 
   for (const tile of candidates) {
     const amount = tile.resources[resource].current;
-    if (amount > 0 && amount > bestAmount) {
-      bestAmount = amount;
+    if (amount <= 0) continue;
+    // Discount the raw amount by distance and by how many agents already work
+    // the tile, so a closer or emptier patch can win over the single richest
+    // one. Agents at slightly different positions then pick different targets
+    // and fan out, instead of all stacking on the global maximum.
+    const dist = manhattanDistance(fromX, fromY, tile.x, tile.y);
+    const score =
+      amount /
+      ((1 + DEHERD_DIST_PENALTY * dist) *
+        (1 + DEHERD_OCC_PENALTY * tile.occupants.length));
+    if (score > bestScore) {
+      bestScore = score;
       best = tile;
     }
   }
