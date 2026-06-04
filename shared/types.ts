@@ -234,6 +234,7 @@ export interface WorldTile {
     food: Resource
     water: Resource
     material: Resource
+    game: Resource          // Local prey/animal population. Hunted down, breeds back slowly.
   }
   ancientDensity: number    // 0.0–1.0. Higher closer to ruins and source
   artifacts: Artifact[]

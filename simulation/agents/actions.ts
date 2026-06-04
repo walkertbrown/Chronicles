@@ -10,6 +10,7 @@ import { getRelationship, socialRestorationValue } from './relationships.js';
 import { COAST_ROW } from '../world/generator.js';
 import {
   findBestFoodTile,
+  findBestGameTile,
   findBestWaterTile,
   getAdjacentTiles,
   getTile,
@@ -17,6 +18,7 @@ import {
   isPassable,
   isVesselZone,
   manhattanDistance,
+  markTileDirty,
   stepToward,
 } from '../world/tiles.js';
 
@@ -43,11 +45,22 @@ const HUNT_SUCCESS_BASE = 0.3;
 const HUNT_SKILL_BONUS = 0.4;
 const HUNT_FOOD_RESTORE = 0.25;
 const HUNT_COST_FATIGUE = 0.05;
+// Central-place foraging: hunting draws down a local prey population.
+const HUNT_GAME_MIN = 0.1;      // below this, range out to fresh hunting ground
+const HUNT_GAME_TAKE = 0.15;    // game removed from the tile per successful kill
+const HUNT_CROWDING_K = 0.2;    // success penalty per extra hunter sharing the patch
+const HUNT_RANGE_RADIUS = 12;   // how far a hunter will range from camp for game
+const FORAGE_GATHER_MIN = 0.1;  // plant-forage density below which gathering ranges out
 
 const FISH_SUCCESS_BASE = 0.35;
 const FISH_SKILL_BONUS = 0.35;
 const FISH_FOOD_RESTORE = 0.2;
 const FISH_COST_FATIGUE = 0.04;
+// Fishing draws on aquatic forage, represented by the river/coast tile's food stock.
+const FISH_STOCK_MIN = 0.1;     // below this, move along the shore/river to fresh water
+const FISH_STOCK_TAKE = 0.1;    // food removed from the tile per successful catch
+const FISH_CROWDING_K = 0.2;    // success penalty per extra fisher on the same spot
+const FISH_RESIDUAL = 0.15;     // meagre shellfish baseline so a tapped shore isn't barren
 
 const COAST_HUNT_RADIUS = 15;
 const RIVER_FISH_RADIUS = 12;
@@ -556,6 +569,7 @@ function actionHarvestFood(agent: Agent, state: WorldState): TickOutcome {
     );
     const foodBefore = tile.resources.food.current;
     tile.resources.food.current = Math.max(0, tile.resources.food.current - amount);
+    markTileDirty(state.tiles, tile.x, tile.y); // depleted patch now regenerates
     agent.drives.hunger = clamp01(agent.drives.hunger - HUNGER_RESTORE_FOOD);
     agent.lastAteAtTick = state.tick;
 
@@ -616,6 +630,7 @@ function actionDrinkWater(agent: Agent, state: WorldState): TickOutcome {
       0,
       tile.resources.water.current - amount,
     );
+    markTileDirty(state.tiles, tile.x, tile.y); // depleted patch now regenerates
     agent.drives.hunger = clamp01(agent.drives.hunger - HUNGER_RESTORE_WATER);
     agent.lastDrankAtTick = state.tick;
 
@@ -954,15 +969,95 @@ function isOnOrNearRiver(agent: Agent, state: WorldState): boolean {
   return tiles.some((t) => t.terrain === Terrain.River);
 }
 
+// Forage the land by what it offers best nearby: hunt game-rich ground, gather
+// plant-rich ground. Both underlying actions range out when the spot here is
+// tapped, so the band spreads toward whichever resource is richest.
+function chooseLandForage(agent: Agent, state: WorldState): TickOutcome {
+  const here = getTile(state.tiles, agent.position.x, agent.position.y);
+  const localFood = here?.resources.food.current ?? 0;
+  const localGame = here?.resources.game.current ?? 0;
+
+  // Something harvestable right here — take the richer of the two.
+  if (localGame >= HUNT_GAME_MIN || localFood >= FORAGE_GATHER_MIN) {
+    return localGame >= localFood
+      ? actionHunt(agent, state)
+      : actionHarvestFood(agent, state);
+  }
+
+  // Nothing here — head for the better of the nearest game vs forage patch.
+  const bestGame = findBestGameTile(
+    state.tiles,
+    agent.position.x,
+    agent.position.y,
+    HUNT_RANGE_RADIUS,
+  );
+  const bestFood = findBestFoodTile(
+    state.tiles,
+    agent.position.x,
+    agent.position.y,
+    FOOD_SEARCH_RADIUS,
+  );
+  const gameVal = bestGame?.resources.game.current ?? 0;
+  const foodVal = bestFood?.resources.food.current ?? 0;
+  return gameVal >= foodVal
+    ? actionHunt(agent, state)
+    : actionHarvestFood(agent, state);
+}
+
 function actionHunt(agent: Agent, state: WorldState): TickOutcome {
+  const tile = getTile(state.tiles, agent.position.x, agent.position.y);
+  const localGame = tile?.resources.game.current ?? 0;
+
+  // Central-place foraging: if the prey here is hunted out, range toward fresher
+  // hunting ground rather than fruitlessly stalking an empty patch. This is what
+  // fans hunters out across the hinterland instead of stacking on one tile.
+  if (localGame < HUNT_GAME_MIN) {
+    const best = findBestGameTile(
+      state.tiles,
+      agent.position.x,
+      agent.position.y,
+      HUNT_RANGE_RADIUS,
+    );
+    if (
+      best !== undefined &&
+      best.resources.game.current > localGame &&
+      (best.x !== agent.position.x || best.y !== agent.position.y)
+    ) {
+      agent.drives.fatigue = clamp01(agent.drives.fatigue + HUNT_COST_FATIGUE);
+      stepAgentToward(agent, best.x, best.y, state);
+      return makeOutcome(agent, {
+        type: OutcomeType.Hunted,
+        success: false,
+        partial: true,
+      });
+    }
+  }
+
+  // Many hunters working one patch interfere with each other and spook the game,
+  // so per-capita success falls as the tile gets crowded.
+  const coHunters = tile?.occupants.length ?? 1;
+  const crowdingPenalty = 1 / (1 + HUNT_CROWDING_K * Math.max(0, coHunters - 1));
+
+  // Success scales with how much game is actually present.
   const seasonMod = SEASON_HUNT_MODIFIERS[state.season] ?? 1.0;
-  const successChance = (HUNT_SUCCESS_BASE + agent.skills.hunting * HUNT_SKILL_BONUS) * seasonMod;
+  const gameFactor = clamp01(localGame);
+  const successChance =
+    (HUNT_SUCCESS_BASE + agent.skills.hunting * HUNT_SKILL_BONUS) *
+    seasonMod *
+    gameFactor *
+    crowdingPenalty;
   const fatigued = fatigueModifier(agent.drives.fatigue);
   const success = Math.random() < successChance * fatigued * illnessSkillMultiplier(agent);
 
   agent.drives.fatigue = clamp01(agent.drives.fatigue + HUNT_COST_FATIGUE);
 
   if (success) {
+    // A kill removes animals from the local population; the tile is marked dirty
+    // so it regenerates (the herd breeds back) over the coming ticks.
+    if (tile !== undefined) {
+      tile.resources.game.current = Math.max(0, tile.resources.game.current - HUNT_GAME_TAKE);
+      markTileDirty(state.tiles, tile.x, tile.y);
+    }
     agent.drives.hunger = clamp01(agent.drives.hunger - HUNT_FOOD_RESTORE);
     agent.lastAteAtTick = state.tick;
   }
@@ -982,22 +1077,51 @@ function actionHunt(agent: Agent, state: WorldState): TickOutcome {
 }
 
 function actionFish(agent: Agent, state: WorldState): TickOutcome {
+  const tile = getTile(state.tiles, agent.position.x, agent.position.y);
+  // Aquatic forage (fish, shellfish) is drawn from the river/coast tile's food
+  // stock — fishing depletes it just as hunting depletes game.
+  const localStock = tile?.resources.food.current ?? 0;
+
+  // If this stretch is fished out, work along the shore/river to fuller water.
+  if (localStock < FISH_STOCK_MIN) {
+    const best = findBestFoodTile(
+      state.tiles,
+      agent.position.x,
+      agent.position.y,
+      RIVER_FISH_RADIUS,
+    );
+    if (
+      best !== undefined &&
+      best.resources.food.current > localStock &&
+      (best.x !== agent.position.x || best.y !== agent.position.y)
+    ) {
+      agent.drives.fatigue = clamp01(agent.drives.fatigue + FISH_COST_FATIGUE);
+      stepAgentToward(agent, best.x, best.y, state);
+      return makeOutcome(agent, { type: OutcomeType.Fished, success: false, partial: true });
+    }
+  }
+
+  const coFishers = tile?.occupants.length ?? 1;
+  const crowdingPenalty = 1 / (1 + FISH_CROWDING_K * Math.max(0, coFishers - 1));
   const seasonMod = SEASON_FISH_MODIFIERS[state.season] ?? 1.0;
-  const successChance = (FISH_SUCCESS_BASE + agent.skills.gathering * FISH_SKILL_BONUS) * seasonMod;
+  const stockFactor = clamp01(localStock + FISH_RESIDUAL);
+  const successChance =
+    (FISH_SUCCESS_BASE + agent.skills.gathering * FISH_SKILL_BONUS) *
+    seasonMod *
+    stockFactor *
+    crowdingPenalty;
   const fatigued = fatigueModifier(agent.drives.fatigue);
   const success = Math.random() < successChance * fatigued * illnessSkillMultiplier(agent);
 
   agent.drives.fatigue = clamp01(agent.drives.fatigue + FISH_COST_FATIGUE);
 
   if (success) {
+    if (tile !== undefined) {
+      tile.resources.food.current = Math.max(0, tile.resources.food.current - FISH_STOCK_TAKE);
+      markTileDirty(state.tiles, tile.x, tile.y);
+    }
     agent.drives.hunger = clamp01(agent.drives.hunger - FISH_FOOD_RESTORE);
     agent.lastAteAtTick = state.tick;
-    if (getTile(state.tiles, agent.position.x, agent.position.y)?.terrain !== Terrain.River) {
-      const riverTile = findBestWaterTile(state.tiles, agent.position.x, agent.position.y, RIVER_FISH_RADIUS);
-      if (riverTile !== undefined) {
-        stepAgentToward(agent, riverTile.x, riverTile.y, state);
-      }
-    }
   }
 
   return makeOutcome(agent, {
@@ -1180,23 +1304,14 @@ export function executeAgentAction(
           outcome = actionDrinkWater(agent, state);
           break;
         }
-        const currentTile = getTile(state.tiles, agent.position.x, agent.position.y);
-        const isCoast = currentTile?.terrain === Terrain.Coast;
-        const foodThreshold = isCoast ? 0.4 : 0.15;
-        const hasTileFood = currentTile !== undefined && currentTile.resources.food.current >= foodThreshold;
-        if (hasTileFood) {
-          outcome = actionHarvestFood(agent, state);
-          break;
-        }
-        if (isOnOrNearRiver(agent, state)) {
+        // Rivers and the seashore are fished; the land is hunted or gathered.
+        // Every forage action ranges out once its patch is tapped, which is what
+        // fans the band across a hinterland instead of stacking on one tile.
+        if (isOnOrNearRiver(agent, state) || isNearCoast(agent, state)) {
           outcome = actionFish(agent, state);
           break;
         }
-        if (isNearCoast(agent, state)) {
-          outcome = actionHunt(agent, state);
-          break;
-        }
-        outcome = actionHarvestFood(agent, state);
+        outcome = chooseLandForage(agent, state);
         break;
       }
       case 'fatigue':

@@ -138,12 +138,21 @@ export function findBestWaterTile(
   return findBestResourceTile(tiles, fromX, fromY, radius, 'water');
 }
 
+export function findBestGameTile(
+  tiles: TileCache,
+  fromX: number,
+  fromY: number,
+  radius: number,
+): WorldTile | undefined {
+  return findBestResourceTile(tiles, fromX, fromY, radius, 'game');
+}
+
 function findBestResourceTile(
   tiles: TileCache,
   fromX: number,
   fromY: number,
   radius: number,
-  resource: 'food' | 'water',
+  resource: 'food' | 'water' | 'game',
 ): WorldTile | undefined {
   let best: WorldTile | undefined;
   let bestAmount = 0;

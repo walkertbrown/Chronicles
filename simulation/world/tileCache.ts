@@ -14,24 +14,30 @@ import {
 
 type RNG = () => number;
 
-const TERRAIN_RESOURCES: Record<Terrain, [number, number, number]> = {
-  [Terrain.Plain]:    [0.5, 0.4, 0.3],
-  [Terrain.Forest]:   [0.8, 0.3, 0.7],
-  [Terrain.River]:    [0.5, 1.0, 0.2],
-  [Terrain.Mountain]: [0.1, 0.2, 0.8],
-  [Terrain.Coast]:    [0.4, 0.6, 0.2],
-  [Terrain.Ruin]:     [0.1, 0.1, 0.4],
-  [Terrain.Vessel]:   [0.1, 0.1, 0.5],
+// Per-terrain resource MAX: [food (plant forage), water, material, game (prey)].
+// Game reflects realistic prey availability: richest in forest, good on plains and
+// along rivers, sparse in mountains, low on the coast (where fishing substitutes).
+const TERRAIN_RESOURCES: Record<Terrain, [number, number, number, number]> = {
+  [Terrain.Plain]:    [0.5, 0.4, 0.3, 0.6],
+  [Terrain.Forest]:   [0.8, 0.3, 0.7, 0.85],
+  [Terrain.River]:    [0.5, 1.0, 0.2, 0.7],
+  [Terrain.Mountain]: [0.1, 0.2, 0.8, 0.3],
+  [Terrain.Coast]:    [0.4, 0.6, 0.2, 0.25],
+  [Terrain.Ruin]:     [0.1, 0.1, 0.4, 0.2],
+  [Terrain.Vessel]:   [0.1, 0.1, 0.5, 0.0],
 };
 
-const TERRAIN_REGEN: Record<Terrain, [number, number, number]> = {
-  [Terrain.Plain]:    [0.002, 0.001, 0.0005],
-  [Terrain.Forest]:   [0.004, 0.001, 0.001],
-  [Terrain.River]:    [0.002, 0.005, 0.0005],
-  [Terrain.Mountain]: [0.0005, 0.001, 0.002],
-  [Terrain.Coast]:    [0.002, 0.003, 0.0005],
-  [Terrain.Ruin]:     [0.0005, 0.0005, 0.001],
-  [Terrain.Vessel]:   [0.0005, 0.0005, 0.001],
+// Per-terrain regen rate per tick: [food, water, material, game].
+// Game regenerates SLOWER than plant forage — animal populations breed back
+// gradually, so an over-hunted patch takes many ticks to recover.
+const TERRAIN_REGEN: Record<Terrain, [number, number, number, number]> = {
+  [Terrain.Plain]:    [0.002, 0.001, 0.0005, 0.0015],
+  [Terrain.Forest]:   [0.004, 0.001, 0.001, 0.002],
+  [Terrain.River]:    [0.002, 0.005, 0.0005, 0.0018],
+  [Terrain.Mountain]: [0.0005, 0.001, 0.002, 0.0008],
+  [Terrain.Coast]:    [0.002, 0.003, 0.0005, 0.0012],
+  [Terrain.Ruin]:     [0.0005, 0.0005, 0.001, 0.0008],
+  [Terrain.Vessel]:   [0.0005, 0.0005, 0.001, 0.0],
 };
 
 // ============================================================
@@ -209,13 +215,14 @@ function makeResource(max: number, regen: number, rng: RNG): Resource {
 }
 
 function makeTileResources(terrain: Terrain, rng: RNG): WorldTile['resources'] {
-  const [foodMax, waterMax, matMax] = TERRAIN_RESOURCES[terrain];
-  const [foodRegen, waterRegen, matRegen] = TERRAIN_REGEN[terrain];
+  const [foodMax, waterMax, matMax, gameMax] = TERRAIN_RESOURCES[terrain];
+  const [foodRegen, waterRegen, matRegen, gameRegen] = TERRAIN_REGEN[terrain];
   const noise = () => rFloat(rng, 0.85, 1.15);
   return {
     food:     makeResource(foodMax  * noise(), foodRegen,  rng),
     water:    makeResource(waterMax * noise(), waterRegen, rng),
     material: makeResource(matMax   * noise(), matRegen,   rng),
+    game:     makeResource(gameMax  * noise(), gameRegen,  rng),
   };
 }
 
@@ -345,10 +352,22 @@ export class TileCacheImpl implements TileCache {
   static deserialize(data: import('@shared/types.js').TileCacheData): TileCacheImpl {
     const initialTiles = new Map<string, WorldTile>();
     for (const [k, tile] of Object.entries(data.dirtyTiles)) {
+      backfillTileGame(tile, data.seed); // migrate tiles persisted before `game` existed
       initialTiles.set(k, tile);
     }
     return new TileCacheImpl(data.seed, initialTiles);
   }
+}
+
+// Tiles persisted before the prey/`game` resource was added lack it. Backfill a
+// fresh game stock from the tile's terrain so hunting code never hits undefined.
+function backfillTileGame(tile: WorldTile, seed: number): void {
+  const resources = tile.resources as Record<string, Resource>;
+  if (resources.game !== undefined) return;
+  const rng = getTileRng(seed, tile.x, tile.y);
+  const [, , , gameMax] = TERRAIN_RESOURCES[tile.terrain];
+  const [, , , gameRegen] = TERRAIN_REGEN[tile.terrain];
+  resources.game = makeResource(gameMax * rFloat(rng, 0.85, 1.15), gameRegen, rng);
 }
 
 // ============================================================

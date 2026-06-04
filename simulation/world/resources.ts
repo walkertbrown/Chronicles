@@ -41,6 +41,7 @@ export function tickAllResources(tiles: TileCache, season: Season): void {
     regenResource(tile.resources.food, modifier);
     regenResource(tile.resources.water, modifier);
     regenResource(tile.resources.material, modifier);
+    regenResource(tile.resources.game, modifier);
     applyCoastFoodFloor(tile);
   }
 }
