@@ -44,6 +44,7 @@ export async function writeCheckpoint(state: WorldState): Promise<void> {
       day: state.day,
       year: state.year,
       season: state.season,
+      ticksInCurrentSeason: state.ticksInCurrentSeason,
       lastCheckpoint: new Date().toISOString(),
       population: state.agents.filter((a) => a.alive).length,
       agents: state.agents.map((a) => ({
@@ -81,6 +82,7 @@ export async function writeCheckpoint(state: WorldState): Promise<void> {
       tiles: state.tiles.serialize(),
       chroniclePages: state.chroniclePages,
       latestSummary: state.latestSummary,
+      lastChronicleDay: state.lastChronicleDay,
       lastChronicleGeneratedAt: state.lastChronicleGeneratedAt,
       lastSummaryGeneratedAt: state.lastSummaryGeneratedAt,
       eventLog: state.eventLog.slice(-500),
@@ -145,6 +147,18 @@ export async function loadCheckpoint(worldId: string): Promise<WorldState | null
     const raw = doc.data() as Omit<WorldState, 'tiles'> & { tiles: import('@shared/types.js').TileCacheData };
     const tiles = TileCacheImpl.deserialize(raw.tiles);
     const state = { ...raw, tiles } as WorldState;
+    // Checkpoints written before lastChronicleDay existed have no value for it.
+    // Default to the resumed day so we don't immediately re-chronicle the day we
+    // resume into — the whole point of the field is to stop replayed duplicates.
+    if (typeof state.lastChronicleDay !== 'number') {
+      state.lastChronicleDay = state.day;
+    }
+    // ticksInCurrentSeason was historically not persisted; an undefined value
+    // turns the season clock into NaN on the first post-resume increment, freezing
+    // the seasons. Default to 0 so the clock keeps running.
+    if (typeof state.ticksInCurrentSeason !== 'number') {
+      state.ticksInCurrentSeason = 0;
+    }
     console.log(`Checkpoint loaded — tick ${state.tick}, day ${state.day}`);
     return state;
   } catch (err) {

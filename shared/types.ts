@@ -423,6 +423,7 @@ export interface WorldState {
   eventLog: SimEvent[]      // Last 500 events
   chroniclePages: ChronicleEntry[]   // all generated chronicle pages, newest last
   lastCheckpoint: string    // ISO timestamp
+  lastChronicleDay: number  // simulated day of the most recently generated chronicle; -1 until the first fires. Guards against re-chronicling a day that's replayed after a checkpoint restore.
   lastChronicleGeneratedAt: string | null   // real-world ISO timestamp of last chronicle generation. null until first page fires
   lastSummaryGeneratedAt: string | null     // real-world ISO timestamp of last summary generation. null until first summary fires
   latestSummary: WorldSummary | null    // most recent hourly summary; null until first fires
