@@ -819,7 +819,7 @@ function pickExploreTile(agent: Agent, state: WorldState): WorldTile | undefined
     state.tiles,
     agent.position.x,
     agent.position.y,
-  ).filter((tile) => isPassable(tile.terrain, state.vessel.beached));
+  ).filter((tile) => isPassable(tile.terrain, state.vessel.beached) && !isVesselZone(tile.y));
 
   if (!agent.discoveredTileIds) agent.discoveredTileIds = [];
   const undiscovered = adjacent.filter(
@@ -896,7 +896,7 @@ function actionWander(agent: Agent, state: WorldState): TickOutcome {
     state.tiles,
     agent.position.x,
     agent.position.y,
-  ).filter((tile) => isPassable(tile.terrain, state.vessel.beached));
+  ).filter((tile) => isPassable(tile.terrain, state.vessel.beached) && !isVesselZone(tile.y));
 
   if (adjacent.length === 0) {
     return makeOutcome(agent, { type: OutcomeType.Wandered, success: false });
@@ -919,7 +919,7 @@ function actionWander(agent: Agent, state: WorldState): TickOutcome {
       state.tiles,
       agent.position.x,
       agent.position.y,
-    ).filter((tile) => isPassable(tile.terrain, state.vessel.beached));
+    ).filter((tile) => isPassable(tile.terrain, state.vessel.beached) && !isVesselZone(tile.y));
     const secondIndex = Math.floor(Math.random() * secondAdjacent.length);
     const second = secondAdjacent[secondIndex];
     if (second !== undefined) {
@@ -1349,6 +1349,30 @@ export function executeAgentAction(
   outcomes: TickOutcome[],
 ): void {
   const atSea = isVesselZone(agent.position.y);
+
+  // After landfall nobody belongs on the water. Any agent that ends up in the
+  // sea zone — stranded from an old checkpoint, or having wandered/fled offshore
+  // — wades back to the coast instead of resting at sea forever.
+  if (atSea && state.vessel.beached) {
+    const home = getHome(agent);
+    if (isVesselZone(home.y)) home.y = COAST_ROW - 1; // a sea-set home must not pull them back out
+    // Wade to the nearest passable land, routing around the beached hull (the
+    // tile due north can be the impassable Vessel structure). Prefer landward
+    // steps (north), then around to the sides.
+    const fx = agent.position.x;
+    const fy = agent.position.y;
+    for (const [dx, dy] of [[0, -1], [-1, -1], [1, -1], [-1, 0], [1, 0]] as const) {
+      const nt = getTile(state.tiles, fx + dx, fy + dy);
+      if (nt !== undefined && isPassable(nt.terrain, state.vessel.beached)) {
+        moveAgent(agent, fx + dx, fy + dy, state);
+        break;
+      }
+    }
+    const o = makeOutcome(agent, { type: OutcomeType.Wandered, success: true });
+    outcomes.push(o);
+    agent.currentAction = 'Wading back to shore';
+    return;
+  }
 
   if (atSea) {
     const steerer = findSteerer(state);
