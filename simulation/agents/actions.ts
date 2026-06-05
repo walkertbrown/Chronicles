@@ -9,8 +9,6 @@ import { OutcomeType, type TickOutcome } from './outcomes.js';
 import { getRelationship, socialRestorationValue } from './relationships.js';
 import { COAST_ROW } from '../world/generator.js';
 import {
-  findBestFoodTile,
-  findBestGameTile,
   findBestWaterTile,
   getAdjacentTiles,
   getTile,
@@ -28,7 +26,6 @@ import {
 
 const DRIVE_THRESHOLD = 0.2;
 
-const FOOD_SEARCH_RADIUS = 15;
 const WATER_SEARCH_RADIUS = 15;
 const SOCIAL_SEARCH_RADIUS = 12;
 const HELP_SEARCH_RADIUS = 8;
@@ -45,29 +42,52 @@ const HUNT_SUCCESS_BASE = 0.3;
 const HUNT_SKILL_BONUS = 0.4;
 const HUNT_FOOD_RESTORE = 0.25;
 const HUNT_COST_FATIGUE = 0.05;
-// Central-place foraging: hunting draws down a local prey population.
-const HUNT_GAME_MIN = 0.1;      // below this, range out to fresh hunting ground
+// Hunting draws down a local prey population (the herd breeds back over time).
 const HUNT_GAME_TAKE = 0.15;    // game removed from the tile per successful kill
 const HUNT_CROWDING_K = 0.2;    // success penalty per extra hunter sharing the patch
-const HUNT_RANGE_RADIUS = 12;   // how far a hunter will range from camp for game
-const FORAGE_GATHER_MIN = 0.1;  // plant-forage density below which gathering ranges out
 
 const FISH_SUCCESS_BASE = 0.35;
 const FISH_SKILL_BONUS = 0.35;
 const FISH_FOOD_RESTORE = 0.2;
 const FISH_COST_FATIGUE = 0.04;
 // Fishing draws on aquatic forage, represented by the river/coast tile's food stock.
-const FISH_STOCK_MIN = 0.1;     // below this, move along the shore/river to fresh water
 const FISH_STOCK_TAKE = 0.1;    // food removed from the tile per successful catch
 const FISH_CROWDING_K = 0.2;    // success penalty per extra fisher on the same spot
-const FISH_RESIDUAL = 0.15;     // meagre shellfish baseline so a tapped shore isn't barren
+const FISH_RESIDUAL = 0.06;     // meagre shellfish baseline (lowered so the shore alone can't feed the whole band)
 
-// How close to water an agent must be to fish: on the tile or directly
-// adjacent. Kept small so only the actual shoreline/riverbank fishes — anyone
-// further inland hunts or gathers instead, which fans the band's activity out
-// rather than funnelling everyone near the sea into fishing.
-const FISH_TRIGGER_RADIUS = 1;
-const RIVER_FISH_RADIUS = 12; // how far a fisher ranges along the water for a fuller stretch
+// Foraging is decided per-agent from LOCAL information — no global best-tile
+// oracle. Perception is short (agents reason about nearby ground only); the
+// distance and crowding discounts make them prefer near, uncontested patches;
+// satisficing lets them settle rather than chase the global maximum. Combined
+// with skill weighting, this fans the band out by vocation instead of herding.
+const FORAGE_PERCEPTION_RADIUS = 6;
+const FORAGE_DIST_WEIGHT = 0.12;   // expected-yield discount per tile of travel
+const FORAGE_CROWD_WEIGHT = 0.5;   // expected-yield discount per other forager already on the tile
+const FORAGE_SATISFICE_FRAC = 0.7; // work here if it scores >= this fraction of the best patch in view
+const FORAGE_MIN_VIABLE = 0.04;    // below this expected yield, wander for fresher ground
+const FORAGE_HUNGER_REACH = 10;    // extra perception tiles at max hunger (desperation widens the search)
+const FORAGE_DESPERATION = 0.7;    // how much hunger softens the travel-distance penalty (0..1)
+
+// Foraging cohesion: agents prefer to work the ground around their camp (home)
+// and return to it, so the band settles rather than strip-mining outward. The
+// pull is scaled by sociability — gregarious agents cling to camp, loners barely
+// heed it and roam. The camp itself drifts toward where they actually forage, so
+// it follows sustained effort: settle, work the land, move on when it's spent.
+const COHESION_STRENGTH = 0.6;     // max score bonus for foraging at home (at sociability 1.0)
+const COHESION_FALLOFF = 0.12;     // how quickly the home bonus decays with distance from camp
+const HOME_DRIFT = 0.015;          // fraction of the gap the camp closes toward a worked patch each tick
+const MATE_HOME_PULL = 0.06;       // mates share a hearth — their camps ease toward each other each forage
+// Leash: agents work the ground within this radius of camp and only break past
+// it when the local ground is genuinely spent. Loners get a far longer leash —
+// they barely heed camp and roam. Beyond the leash, a tile's appeal falls off
+// fast, so only real local exhaustion (nothing good in reach) sends them out.
+const HOME_LEASH_BASE = 6;         // worked radius for a fully gregarious agent
+const HOME_LEASH_ROAM = 30;        // extra leash a pure loner gets (× (1 - sociability))
+const LEASH_PENALTY = 0.5;         // how hard appeal drops per tile beyond the leash
+
+// Survival drives outrank social/emotional ones once they cross this urgency.
+const SURVIVAL_DRIVES: Array<keyof Drives> = ['hunger', 'fatigue', 'fear'];
+const SURVIVAL_PRIORITY_THRESHOLD = 0.35;
 
 const SEASON_HUNT_MODIFIERS: Record<string, number> = {
   spring: 1.4,
@@ -178,14 +198,22 @@ function getDominantDrive(agent: Agent): keyof Drives | null {
   );
   if (aboveThreshold.length === 0) return null;
 
+  // Survival before sentiment: when a survival drive (hunger/fatigue/fear) is
+  // genuinely pressing, it outranks the social/emotional drives regardless of
+  // their raw magnitude — so nobody starves while wandering off to find company.
+  const survivalPressing = aboveThreshold.filter(
+    (key) =>
+      SURVIVAL_DRIVES.includes(key) &&
+      agent.drives[key] >= SURVIVAL_PRIORITY_THRESHOLD,
+  );
+  const pool = survivalPressing.length > 0 ? survivalPressing : aboveThreshold;
+
   let maxValue = 0;
-  for (const key of aboveThreshold) {
+  for (const key of pool) {
     maxValue = Math.max(maxValue, agent.drives[key]);
   }
 
-  const tied = aboveThreshold.filter(
-    (key) => agent.drives[key] >= maxValue - 0.01,
-  );
+  const tied = pool.filter((key) => agent.drives[key] >= maxValue - 0.01);
 
   if (tied.length === 1) {
     return tied[0] ?? null;
@@ -593,21 +621,8 @@ function actionHarvestFood(agent: Agent, state: WorldState): TickOutcome {
     });
   }
 
-  const bestFood = findBestFoodTile(
-    state.tiles,
-    agent.position.x,
-    agent.position.y,
-    FOOD_SEARCH_RADIUS,
-  );
-  if (bestFood !== undefined) {
-    stepAgentToward(agent, bestFood.x, bestFood.y, state);
-    return makeOutcome(agent, {
-      type: OutcomeType.Harvested,
-      success: false,
-      partial: true,
-    });
-  }
-
+  // Nothing worth gathering on this tile. Where to range next is the forage
+  // chooser's job now — no global best-tile hunt here.
   return makeOutcome(agent, {
     type: OutcomeType.Harvested,
     success: false,
@@ -962,82 +977,210 @@ function actionConflict(
   });
 }
 
-function isNearCoast(agent: Agent, state: WorldState): boolean {
-  const tiles = getTilesInRange(state.tiles, agent.position.x, agent.position.y, FISH_TRIGGER_RADIUS);
-  return tiles.some((t) => t.terrain === Terrain.Coast) ||
-    getTile(state.tiles, agent.position.x, agent.position.y)?.terrain === Terrain.Coast;
+// ── Foraging: each agent decides for itself ─────────────────────────────────
+// There is no global best-tile oracle. An agent weighs only the ground it can
+// see, by what ITS OWN skills can wring from each patch, discounted by travel
+// and by how many foragers already crowd it. Heterogeneous skills + local
+// competition make the band fan out by vocation — hunters to the game, gatherers
+// to the plant ground, fisherfolk to the water — instead of all chasing one tile.
+
+type ForageMode = 'hunt' | 'gather' | 'fish';
+
+// Water is fished; dry land is hunted or gathered.
+function forageModesFor(tile: WorldTile): ForageMode[] {
+  if (tile.terrain === Terrain.Coast || tile.terrain === Terrain.River) {
+    return ['fish'];
+  }
+  return ['hunt', 'gather'];
 }
 
-function isOnOrNearRiver(agent: Agent, state: WorldState): boolean {
-  const current = getTile(state.tiles, agent.position.x, agent.position.y);
-  if (current?.terrain === Terrain.River) return true;
-  const tiles = getTilesInRange(state.tiles, agent.position.x, agent.position.y, FISH_TRIGGER_RADIUS);
-  return tiles.some((t) => t.terrain === Terrain.River);
-}
-
-// Forage the land by what it offers best nearby: hunt game-rich ground, gather
-// plant-rich ground. Both underlying actions range out when the spot here is
-// tapped, so the band spreads toward whichever resource is richest.
-function chooseLandForage(agent: Agent, state: WorldState): TickOutcome {
-  const here = getTile(state.tiles, agent.position.x, agent.position.y);
-  const localFood = here?.resources.food.current ?? 0;
-  const localGame = here?.resources.game.current ?? 0;
-
-  // Something harvestable right here — take the richer of the two.
-  if (localGame >= HUNT_GAME_MIN || localFood >= FORAGE_GATHER_MIN) {
-    return localGame >= localFood
-      ? actionHunt(agent, state)
-      : actionHarvestFood(agent, state);
+// Expected yield of working `tile` in `mode`, as THIS agent sees it: own skill
+// × resource present × season, discounted by distance and by other foragers
+// already on the tile (interference / competition).
+function forageScore(
+  agent: Agent,
+  state: WorldState,
+  tile: WorldTile,
+  mode: ForageMode,
+  fromX: number,
+  fromY: number,
+): number {
+  let skillResource: number;
+  if (mode === 'hunt') {
+    const seasonMod = SEASON_HUNT_MODIFIERS[state.season] ?? 1.0;
+    skillResource = (0.5 + agent.skills.hunting) * tile.resources.game.current * seasonMod;
+  } else if (mode === 'fish') {
+    const seasonMod = SEASON_FISH_MODIFIERS[state.season] ?? 1.0;
+    skillResource = (0.5 + agent.skills.gathering) * tile.resources.food.current * seasonMod;
+  } else {
+    skillResource = (0.5 + agent.skills.gathering) * tile.resources.food.current;
   }
 
-  // Nothing here — head for the better of the nearest game vs forage patch.
-  const bestGame = findBestGameTile(
-    state.tiles,
-    agent.position.x,
-    agent.position.y,
-    HUNT_RANGE_RADIUS,
+  const dist = manhattanDistance(fromX, fromY, tile.x, tile.y);
+  // Don't count the agent itself when scoring the tile it already stands on.
+  const others = Math.max(0, tile.occupants.length - (dist === 0 ? 1 : 0));
+  // Desperation: the hungrier an agent is, the less it minds travelling, so a
+  // rich-but-distant patch (e.g. forest) starts to beat a tapped-out near one.
+  const distWeight = FORAGE_DIST_WEIGHT * (1 - FORAGE_DESPERATION * agent.drives.hunger);
+  return (
+    skillResource /
+    ((1 + distWeight * dist) * (1 + FORAGE_CROWD_WEIGHT * others))
   );
-  const bestFood = findBestFoodTile(
-    state.tiles,
-    agent.position.x,
-    agent.position.y,
-    FOOD_SEARCH_RADIUS,
-  );
-  const gameVal = bestGame?.resources.game.current ?? 0;
-  const foodVal = bestFood?.resources.food.current ?? 0;
-  return gameVal >= foodVal
-    ? actionHunt(agent, state)
-    : actionHarvestFood(agent, state);
+}
+
+function bestForageModeForTile(
+  agent: Agent,
+  state: WorldState,
+  tile: WorldTile,
+  fromX: number,
+  fromY: number,
+): { mode: ForageMode; score: number } {
+  let best: { mode: ForageMode; score: number } = { mode: 'gather', score: -1 };
+  for (const mode of forageModesFor(tile)) {
+    const score = forageScore(agent, state, tile, mode, fromX, fromY);
+    if (score > best.score) best = { mode, score };
+  }
+  return best;
+}
+
+function forageOutcomeType(mode: ForageMode): OutcomeType {
+  if (mode === 'hunt') return OutcomeType.Hunted;
+  if (mode === 'fish') return OutcomeType.Fished;
+  return OutcomeType.Harvested;
+}
+
+function workForage(agent: Agent, state: WorldState, mode: ForageMode): TickOutcome {
+  driftHome(agent, state); // the camp eases toward wherever they're working (and toward a mate's hearth)
+  if (mode === 'hunt') return actionHunt(agent, state);
+  if (mode === 'fish') return actionFish(agent, state);
+  return actionHarvestFood(agent, state);
+}
+
+// The agent's camp. Lazily backfilled for agents restored from a checkpoint
+// written before homes existed (they adopt where they currently stand).
+function getHome(agent: Agent): { x: number; y: number } {
+  const existing = agent.home as { x: number; y: number } | undefined;
+  if (existing !== undefined) return existing;
+  agent.home = { x: agent.position.x, y: agent.position.y };
+  return agent.home;
+}
+
+// The pair-bonded partner an agent shares a hearth with (highest-trust Pair
+// bond), or null if unpartnered.
+function findMate(agent: Agent, state: WorldState): Agent | undefined {
+  let mate: Agent | undefined;
+  let bestTrust = -Infinity;
+  for (const rel of agent.relationships) {
+    if (rel.bond !== BondType.Pair) continue;
+    if (rel.trust <= bestTrust) continue;
+    const other = state.agents.find((a) => a.id === rel.agentId && a.alive);
+    if (other !== undefined) {
+      mate = other;
+      bestTrust = rel.trust;
+    }
+  }
+  return mate;
+}
+
+// The camp follows sustained foraging: each time an agent works a patch, its
+// home eases a little toward that spot. When the ground around camp is rich they
+// forage at home and it barely moves; when it's spent they work farther out and
+// the camp migrates after them — settle, deplete, move on. Mates also ease their
+// hearths toward each other, so a bonded couple keeps one camp and can raise a
+// family rather than drifting apart.
+function driftHome(agent: Agent, state: WorldState): void {
+  const home = getHome(agent);
+  home.x += HOME_DRIFT * (agent.position.x - home.x);
+  home.y += HOME_DRIFT * (agent.position.y - home.y);
+
+  const mate = findMate(agent, state);
+  if (mate !== undefined) {
+    const mateHome = getHome(mate);
+    home.x += MATE_HOME_PULL * (mateHome.x - home.x);
+    home.y += MATE_HOME_PULL * (mateHome.y - home.y);
+  }
+}
+
+// How appealing it is to forage tile (tx,ty) given the agent's camp: a bonus for
+// being near home (scaled by sociability), and a sharp penalty for straying past
+// the leash. So agents work the radius around camp and only range out when the
+// near ground is spent. A loner has a huge leash and a tiny bonus — they roam.
+function homePullFactor(
+  tx: number,
+  ty: number,
+  home: { x: number; y: number },
+  sociability: number,
+  leash: number,
+): number {
+  const d = manhattanDistance(tx, ty, home.x, home.y);
+  const bonus = 1 + (sociability * COHESION_STRENGTH) / (1 + COHESION_FALLOFF * d);
+  if (d <= leash) return bonus;
+  return bonus / (1 + LEASH_PENALTY * (d - leash));
+}
+
+// Pick how and where to forage from the agent's own vantage, then either work
+// the current spot or take one step toward the best patch it can see.
+function chooseForage(agent: Agent, state: WorldState): TickOutcome {
+  const fx = agent.position.x;
+  const fy = agent.position.y;
+
+  // A hungry agent looks further afield for food (desperation widens the search).
+  const reach = FORAGE_PERCEPTION_RADIUS + Math.round(agent.drives.hunger * FORAGE_HUNGER_REACH);
+  const candidates = getTilesInRange(state.tiles, fx, fy, reach);
+  const here = getTile(state.tiles, fx, fy);
+  if (here !== undefined) candidates.push(here);
+
+  // Gregarious agents bias toward ground near their camp (so camps hold together
+  // instead of strip-mining outward); loners ignore it. `raw` is the food yield
+  // (used for the viability floor); `adj` adds the home pull and is what the
+  // agent actually optimises.
+  const home = getHome(agent);
+  const sociability = agent.traits.sociability;
+  const leash = HOME_LEASH_BASE + (1 - sociability) * HOME_LEASH_ROAM;
+
+  let best: { tile: WorldTile; mode: ForageMode; raw: number; adj: number } | undefined;
+  let hereChoice: { mode: ForageMode; raw: number; adj: number } | undefined;
+  for (const tile of candidates) {
+    if (!isPassable(tile.terrain, state.vessel.beached)) continue;
+    // The open sea south of the coast is generated as "plain" but is NOT land —
+    // never forage into the vessel zone or agents wander offshore and strand.
+    if (isVesselZone(tile.y)) continue;
+    const bm = bestForageModeForTile(agent, state, tile, fx, fy);
+    const adj = bm.score * homePullFactor(tile.x, tile.y, home, sociability, leash);
+    if (best === undefined || adj > best.adj) {
+      best = { tile, mode: bm.mode, raw: bm.score, adj };
+    }
+    if (tile.x === fx && tile.y === fy) hereChoice = { mode: bm.mode, raw: bm.score, adj };
+  }
+
+  // Nothing actually worth eating within sight — wander to find fresher ground.
+  // (Viability is judged on raw food yield, never on the cohesion bonus.)
+  if (best === undefined || best.raw < FORAGE_MIN_VIABLE) {
+    return actionWander(agent, state);
+  }
+
+  // Satisfice on the cohesion-adjusted score, but only settle on a tile that is
+  // genuinely worth working. Keeps foragers near camp and lets different
+  // starting points settle on different patches instead of converging on one.
+  if (
+    hereChoice !== undefined &&
+    hereChoice.raw >= FORAGE_MIN_VIABLE &&
+    hereChoice.adj >= FORAGE_SATISFICE_FRAC * best.adj
+  ) {
+    return workForage(agent, state, hereChoice.mode);
+  }
+
+  if (best.tile.x === fx && best.tile.y === fy) {
+    return workForage(agent, state, best.mode);
+  }
+
+  stepAgentToward(agent, best.tile.x, best.tile.y, state);
+  return makeOutcome(agent, { type: forageOutcomeType(best.mode), success: false, partial: true });
 }
 
 function actionHunt(agent: Agent, state: WorldState): TickOutcome {
   const tile = getTile(state.tiles, agent.position.x, agent.position.y);
   const localGame = tile?.resources.game.current ?? 0;
-
-  // Central-place foraging: if the prey here is hunted out, range toward fresher
-  // hunting ground rather than fruitlessly stalking an empty patch. This is what
-  // fans hunters out across the hinterland instead of stacking on one tile.
-  if (localGame < HUNT_GAME_MIN) {
-    const best = findBestGameTile(
-      state.tiles,
-      agent.position.x,
-      agent.position.y,
-      HUNT_RANGE_RADIUS,
-    );
-    if (
-      best !== undefined &&
-      best.resources.game.current > localGame &&
-      (best.x !== agent.position.x || best.y !== agent.position.y)
-    ) {
-      agent.drives.fatigue = clamp01(agent.drives.fatigue + HUNT_COST_FATIGUE);
-      stepAgentToward(agent, best.x, best.y, state);
-      return makeOutcome(agent, {
-        type: OutcomeType.Hunted,
-        success: false,
-        partial: true,
-      });
-    }
-  }
 
   // Many hunters working one patch interfere with each other and spook the game,
   // so per-capita success falls as the tile gets crowded.
@@ -1087,25 +1230,6 @@ function actionFish(agent: Agent, state: WorldState): TickOutcome {
   // Aquatic forage (fish, shellfish) is drawn from the river/coast tile's food
   // stock — fishing depletes it just as hunting depletes game.
   const localStock = tile?.resources.food.current ?? 0;
-
-  // If this stretch is fished out, work along the shore/river to fuller water.
-  if (localStock < FISH_STOCK_MIN) {
-    const best = findBestFoodTile(
-      state.tiles,
-      agent.position.x,
-      agent.position.y,
-      RIVER_FISH_RADIUS,
-    );
-    if (
-      best !== undefined &&
-      best.resources.food.current > localStock &&
-      (best.x !== agent.position.x || best.y !== agent.position.y)
-    ) {
-      agent.drives.fatigue = clamp01(agent.drives.fatigue + FISH_COST_FATIGUE);
-      stepAgentToward(agent, best.x, best.y, state);
-      return makeOutcome(agent, { type: OutcomeType.Fished, success: false, partial: true });
-    }
-  }
 
   const coFishers = tile?.occupants.length ?? 1;
   const crowdingPenalty = 1 / (1 + FISH_CROWDING_K * Math.max(0, coFishers - 1));
@@ -1310,14 +1434,10 @@ export function executeAgentAction(
           outcome = actionDrinkWater(agent, state);
           break;
         }
-        // Rivers and the seashore are fished; the land is hunted or gathered.
-        // Every forage action ranges out once its patch is tapped, which is what
-        // fans the band across a hinterland instead of stacking on one tile.
-        if (isOnOrNearRiver(agent, state) || isNearCoast(agent, state)) {
-          outcome = actionFish(agent, state);
-          break;
-        }
-        outcome = chooseLandForage(agent, state);
+        // One routine scores fishing/hunting/gathering on nearby ground by this
+        // agent's own skills and picks where to work or step — no global best-
+        // tile oracle, so the band fans out by vocation instead of all fishing.
+        outcome = chooseForage(agent, state);
         break;
       }
       case 'fatigue':

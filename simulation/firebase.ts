@@ -55,6 +55,7 @@ export async function writeCheckpoint(state: WorldState): Promise<void> {
         gender: a.gender,
         generation: a.generation,
         position: a.position,
+        home: a.home ?? a.position,
         drives: a.drives,
         traits: a.traits,
         skills: a.skills,

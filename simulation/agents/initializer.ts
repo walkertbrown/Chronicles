@@ -68,6 +68,13 @@ const MIN_NEARLY_DIED_OUTCASTS = 3;
 
 const TRAIT_BASE = 0.4;
 const TRAIT_VARIATION = 0.15;
+
+// Sociability is generated separately from the other traits, with a social-
+// skewed distribution: most agents want company, loners are a minority, true
+// hermits rarer still. (1 - r^skew: higher skew → fewer loners.)
+const SOCIABILITY_SKEW = 2.5;
+const SOCIABILITY_LEADER_BONUS = 0.15;       // leaders bind the group
+const SOCIABILITY_SOLITARY_ROLE_PENALTY = 0.2; // explorers/outcasts lean solitary
 const SKILL_MIN = 0.05;
 const SKILL_MAX = 0.2;
 
@@ -130,6 +137,7 @@ function generateTraits(role: FoundingRole, rng: RNG): Traits {
     attraction: TRAIT_BASE,
     aggression: TRAIT_BASE,
     acuity: TRAIT_BASE,
+    sociability: TRAIT_BASE, // overwritten below with its own skewed distribution
   };
 
   switch (role) {
@@ -153,6 +161,17 @@ function generateTraits(role: FoundingRole, rng: RNG): Traits {
   for (const key of Object.keys(traits) as Array<keyof Traits>) {
     traits[key] = clamp01(traits[key] + rFloat(rng, -TRAIT_VARIATION, TRAIT_VARIATION));
   }
+
+  // Sociability is its own thing, generated with a social-skewed distribution
+  // rather than the uniform noise above. Role colours it: leaders bind the
+  // group; those who left or were cast out lean solitary.
+  let sociability = clamp01(1 - Math.pow(rng(), SOCIABILITY_SKEW));
+  if (role === FoundingRole.Leader) {
+    sociability = clamp01(sociability + SOCIABILITY_LEADER_BONUS);
+  } else if (role === FoundingRole.Explorer || role === FoundingRole.Outcast) {
+    sociability = clamp01(sociability - SOCIABILITY_SOLITARY_ROLE_PENALTY);
+  }
+  traits.sociability = sociability;
 
   return traits;
 }
@@ -643,6 +662,7 @@ export function initializeAgents(
       generation: 0,
       alive: true,
       position,
+      home: { x: position.x, y: position.y }, // provisional; the camp is set at landfall
       drives: generateDrives(blueprint.role, blueprint.nearlyDiedOnCrossing),
       traits: generateTraits(blueprint.role, rng),
       skills: generateSkills(rng),

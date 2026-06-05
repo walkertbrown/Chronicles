@@ -20,6 +20,18 @@ async function main(): Promise<void> {
   const state = saved ?? createWorldState(SEED, WORLD_ID);
   if (saved !== null) {
     console.log(`Resuming from tick ${state.tick}, day ${state.day}`);
+    // Backfill fields added after this checkpoint was written, so restored
+    // agents don't carry undefined sociability/home into the new drive math.
+    for (const agent of state.agents) {
+      const traits = agent.traits as typeof agent.traits & { sociability?: number };
+      if (typeof traits.sociability !== 'number') {
+        traits.sociability = Math.max(0, Math.min(1, 1 - Math.pow(Math.random(), 2.5)));
+      }
+      const home = agent.home as { x: number; y: number } | undefined;
+      if (home === undefined) {
+        agent.home = { x: agent.position.x, y: agent.position.y };
+      }
+    }
   }
   process.on('SIGINT', () => {
     console.log('\nSimulation interrupted. Writing final checkpoint...');

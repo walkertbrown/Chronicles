@@ -396,6 +396,9 @@ export function executeLanding(state: WorldState): SimEvent {
     agentsToMove.forEach((agent, i) => {
       const slot = coastSlots[i % beachhead] ?? coastSlots[0]!;
       agent.position = { x: slot.x, y: slot.y };
+      // The whole band founds one camp at the landing site — it'll drift inland
+      // as they work and exhaust the ground around it.
+      agent.home = { x: landingSite.x, y: landingSite.y };
       addAgentToTile(state.tiles, agent, slot.x, slot.y);
     });
   }

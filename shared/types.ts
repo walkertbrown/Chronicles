@@ -107,6 +107,10 @@ export interface Traits {
   attraction: number  // How strongly agent forms pair bonds. Shapes how longing drive is satisfied
   aggression: number  // Multiplier on how drives express when options exist. Not a direct action driver
   acuity: number      // Rate at which agent learns from experience. Mostly inherited. Varies most randomly at birth
+  sociability: number // How strongly the agent seeks company and camps near kin vs. strikes out alone.
+                      // Generated skewed-high at birth (most want company; loners are a minority) and is a
+                      // stable disposition — it does not drift from experience. Scales isolation distress
+                      // (socialNeed/longing) and foraging cohesion. Low = loner, high = gregarious.
 }
 
 // ============================================================
@@ -171,6 +175,16 @@ export interface Agent {
   alive: boolean
 
   position: {
+    x: number
+    y: number
+  }
+
+  // The agent's camp — the central place it forages around and returns to.
+  // Set when the band comes ashore (and inherited by children born into the
+  // camp). The camp drifts toward sustained foraging, so a band settles, works
+  // the land, and moves on when it's spent rather than wandering endlessly.
+  // Gregarious agents cling to it; loners barely heed it and roam.
+  home: {
     x: number
     y: number
   }

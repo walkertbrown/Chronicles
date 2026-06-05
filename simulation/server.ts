@@ -42,6 +42,7 @@ function buildStateSnapshot(state: WorldState): {
     role: string;
     alive: boolean;
     position: { x: number; y: number };
+    home: { x: number; y: number };
     age: number;
     gender: string;
     significanceScore: number;
@@ -103,6 +104,7 @@ function buildStateSnapshot(state: WorldState): {
       role: agent.foundingHistory?.role ?? 'unknown',
       alive: agent.alive,
       position: { ...agent.position },
+      home: { ...(agent.home ?? agent.position) },
       age: agent.age,
       gender: agent.gender,
       significanceScore: agent.significanceScore,

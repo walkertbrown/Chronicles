@@ -6,7 +6,7 @@ import {
   illnessFatigueMultiplier,
   illnessHungerMultiplier,
 } from './illness.js';
-import { isVesselZone } from '../world/tiles.js';
+import { isVesselZone, manhattanDistance } from '../world/tiles.js';
 
 // ============================================================
 // CONSTANTS
@@ -30,11 +30,11 @@ const FEAR_VESSEL_FADE_RATE = 0.001;
 
 const SOCIAL_DEPLETION_RATE = 0.0005;
 const SOCIAL_VESSEL_DEPLETION_RATE = 0.00005;
-const SOCIAL_ISOLATION_TILE_THRESHOLD = 1;
 
 const GRIEF_FADE_RATE = 0.001;
 
-const LONGING_BUILD_RATE = 0.0003;
+const LONGING_BUILD_RATE = 0.0003; // longing is the desire for a MATE; it builds until discharged by reproduction
+const COMPANY_RADIUS = 3;          // another agent within this range counts as company (for socialNeed)
 
 const STARVATION_BASE_TICKS = 480;
 const STARVATION_ENDURANCE_MODIFIER = 24;
@@ -192,7 +192,7 @@ function tickFear(agent: Agent, isAtSea: boolean, nearbyThreat: boolean): void {
 function tickSocialNeed(
   agent: Agent,
   isAtSea: boolean,
-  tileOccupantCount: number,
+  nearCompany: boolean,
 ): void {
   if (isAtSea) {
     agent.drives.socialNeed = clamp01(
@@ -201,9 +201,11 @@ function tickSocialNeed(
     return;
   }
 
-  if (tileOccupantCount <= SOCIAL_ISOLATION_TILE_THRESHOLD) {
+  // Isolation builds social need — but only as much as the agent's nature cares.
+  // A loner (low sociability) barely feels it; a gregarious agent aches to return.
+  if (!nearCompany) {
     agent.drives.socialNeed = clamp01(
-      agent.drives.socialNeed + SOCIAL_DEPLETION_RATE,
+      agent.drives.socialNeed + SOCIAL_DEPLETION_RATE * agent.traits.sociability,
     );
   }
 }
@@ -212,8 +214,34 @@ function tickGrief(agent: Agent): void {
   agent.drives.grief = clamp01(agent.drives.grief - GRIEF_FADE_RATE);
 }
 
+// Longing is the desire for a MATE — distinct from socialNeed (the need for any
+// company). It builds over time, coloured by how strongly the agent forms pair
+// bonds (attraction), and is discharged by reproduction (births.ts resets it).
+// This is what drives an agent to seek a partner; survival drives still outrank
+// it when pressing, and resolveDriveTie defers it to socialNeed until a pair
+// bond exists — so the unmated seek company first, the bonded seek their mate.
 function tickLonging(agent: Agent): void {
-  agent.drives.longing = clamp01(agent.drives.longing + LONGING_BUILD_RATE);
+  agent.drives.longing = clamp01(
+    agent.drives.longing + LONGING_BUILD_RATE * (0.5 + agent.traits.attraction),
+  );
+}
+
+// Company = at least one other living agent within COMPANY_RADIUS.
+function hasNearbyCompany(agent: Agent, state: WorldState): boolean {
+  for (const other of state.agents) {
+    if (!other.alive || other.id === agent.id) continue;
+    if (
+      manhattanDistance(
+        agent.position.x,
+        agent.position.y,
+        other.position.x,
+        other.position.y,
+      ) <= COMPANY_RADIUS
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // ============================================================
@@ -226,13 +254,12 @@ export function tickAgentDrives(
   nearbyThreat: boolean,
 ): void {
   const isAtSea = isVesselZone(agent.position.y);
-  const tile = state.tiles.get(agent.position.x, agent.position.y);
-  const tileOccupantCount = tile?.occupants.length ?? 1;
+  const nearCompany = hasNearbyCompany(agent, state);
 
   tickHunger(agent, isAtSea, state);
   tickFatigue(agent, isAtSea);
   tickFear(agent, isAtSea, nearbyThreat);
-  tickSocialNeed(agent, isAtSea, tileOccupantCount);
+  tickSocialNeed(agent, isAtSea, nearCompany);
   tickGrief(agent);
   tickLonging(agent);
 }

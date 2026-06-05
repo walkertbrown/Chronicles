@@ -6,13 +6,16 @@ import { BondType } from '@shared/types.js';
 import { logBirthEvent } from '../events/log.js';
 import { TICKS_PER_DAY } from './drives.js';
 import { generateChildName } from './initializer.js';
+import { manhattanDistance } from '../world/tiles.js';
 
 // ============================================================
 // CONSTANTS
 // ============================================================
 
-const BIRTH_CHANCE_PER_DAY = 0.05;
-const BIRTH_LONGING_THRESHOLD = 0.6;
+const BIRTH_CHANCE_PER_DAY = 0.10;
+const BIRTH_LONGING_THRESHOLD = 0.45;
+const BIRTH_PROXIMITY_RADIUS = 7;   // parents need to be together at camp (camp-scale), not the same tile
+const BIRTH_MAX_HUNGER = 0.5;       // too hungry to bear/raise a child — a starving time halts births
 const BIRTH_MAX_FEMALE_AGE = 45;
 const BIRTH_MAX_MALE_AGE = 60;
 const BIRTH_MIN_AGE = 16;
@@ -30,6 +33,7 @@ const TRAIT_KEYS: Array<keyof Traits> = [
   'attraction',
   'aggression',
   'acuity',
+  'sociability', // children inherit a blend of their parents' sociability
 ];
 
 // ============================================================
@@ -112,16 +116,32 @@ function isEligiblePair(mother: Agent, father: Agent): boolean {
     return false;
   }
 
+  // Together at camp — near each other, not necessarily on the exact same tile
+  // (the band is spread now, so "same tile" almost never happened).
   if (
-    mother.position.x !== father.position.x ||
-    mother.position.y !== father.position.y
+    manhattanDistance(
+      mother.position.x,
+      mother.position.y,
+      father.position.x,
+      father.position.y,
+    ) > BIRTH_PROXIMITY_RADIUS
   ) {
     return false;
   }
 
+  // Both must desire a mate...
   if (
     mother.drives.longing < BIRTH_LONGING_THRESHOLD ||
     father.drives.longing < BIRTH_LONGING_THRESHOLD
+  ) {
+    return false;
+  }
+
+  // ...and be fed enough to bear and raise a child. The starving time stops
+  // births; the stable, well-fed years are when the camp grows again.
+  if (
+    mother.drives.hunger > BIRTH_MAX_HUNGER ||
+    father.drives.hunger > BIRTH_MAX_HUNGER
   ) {
     return false;
   }
@@ -170,6 +190,7 @@ function spawnChild(
     generation: Math.max(mother.generation, father.generation) + 1,
     alive: true,
     position: { x: mother.position.x, y: mother.position.y },
+    home: { x: mother.home?.x ?? mother.position.x, y: mother.home?.y ?? mother.position.y },
     drives: {
       hunger: 0.4,
       fatigue: 0.3,

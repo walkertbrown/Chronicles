@@ -14,7 +14,10 @@ const SEASON_REGEN_MODIFIER: Record<Season, number> = {
   [Season.Winter]: 0.5,
 };
 
-const COAST_FOOD_FLOOR = 0.05;
+// A meagre shellfish/tidal baseline so the shore is never fully barren — but
+// low enough that it can't sustain the whole band, which is what creates the
+// real pressure to forage inland rather than camp on the beach forever.
+const COAST_FOOD_FLOOR = 0.02;
 
 function clamp01(v: number): number {
   return Math.max(0, Math.min(1, v));
