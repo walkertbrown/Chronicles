@@ -53,6 +53,7 @@ export interface GeneratedWorld {
 // ============================================================
 
 const CONDUIT_COUNT = 75;
+const FRONTIER_CONDUITS = 5;  // how many of the 75 watch from the treeline near the landing
 
 /**
  * Spawn 75 Conduits across the interior of the new world.
@@ -74,18 +75,35 @@ function spawnConduits(rng: RNG): ConduitBeing[] {
   const yMin = Math.floor(COAST_ROW * 0.10);  // ~150 — far interior but not ruin tip
   const yMax = Math.floor(COAST_ROW * 0.82);  // ~1229 — well away from landing coast
 
-  for (let i = 0; i < CONDUIT_COUNT; i++) {
-    // Spread x deterministically across the full width with jitter
-    const xBase = Math.floor((i / CONDUIT_COUNT) * MAP_WIDTH);
-    const xJitter = Math.floor((rng() - 0.5) * (MAP_WIDTH / CONDUIT_COUNT) * 1.5);
-    const x = Math.max(10, Math.min(MAP_WIDTH - 10, xBase + xJitter));
+  // A few linger at the treeline near where the settlers come ashore — watching
+  // from a distance, as the spec's opening image intends ("luminous creatures
+  // watching from the trees"). The rest keep to the interior.
+  const frontierYMin = Math.floor(COAST_ROW * 0.86);  // ~1289 — just inland of the coast
+  const frontierYMax = Math.floor(COAST_ROW * 0.95);  // ~1424 — treeline above the landing
+  const landingCenterX = Math.floor(MAP_WIDTH / 2);
 
-    // Y weighted toward mid-interior — Conduits gather where ancient density is higher
-    // Use a beta-like distribution: most land in the middle third
-    const r1 = rng();
-    const r2 = rng();
-    const yNorm = (r1 + r2) / 2; // average of two randoms — peaks in middle
-    const y = Math.floor(yMin + yNorm * (yMax - yMin));
+  for (let i = 0; i < CONDUIT_COUNT; i++) {
+    let x: number;
+    let y: number;
+
+    if (i < FRONTIER_CONDUITS) {
+      // Treeline watchers, clustered loosely around the landing column.
+      const span = Math.floor(MAP_WIDTH * 0.18);
+      x = Math.max(10, Math.min(MAP_WIDTH - 10, landingCenterX + Math.floor((rng() - 0.5) * span)));
+      y = frontierYMin + Math.floor(rng() * (frontierYMax - frontierYMin));
+    } else {
+      // Spread x deterministically across the full width with jitter
+      const xBase = Math.floor((i / CONDUIT_COUNT) * MAP_WIDTH);
+      const xJitter = Math.floor((rng() - 0.5) * (MAP_WIDTH / CONDUIT_COUNT) * 1.5);
+      x = Math.max(10, Math.min(MAP_WIDTH - 10, xBase + xJitter));
+
+      // Y weighted toward mid-interior — Conduits gather where ancient density is higher
+      // Use a beta-like distribution: most land in the middle third
+      const r1 = rng();
+      const r2 = rng();
+      const yNorm = (r1 + r2) / 2; // average of two randoms — peaks in middle
+      y = Math.floor(yMin + yNorm * (yMax - yMin));
+    }
 
     const conduit: ConduitBeing = {
       id: `conduit_${i}`,

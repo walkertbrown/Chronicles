@@ -41,6 +41,10 @@ export interface WorldContext {
   conflicts: string[];
   recentWorldEvents: Array<{ tick: number; description: string; weight: number }>;
   groupLocation: string;
+  // Conduit sightings/bonds anywhere in the world this window — surfaced as
+  // ambient background regardless of whose thread it touched or its weight, so
+  // readers learn the luminous watchers exist the moment anyone first sees one.
+  conduitPresence: string[];
 }
 
 export interface ThreadPackage {
@@ -98,6 +102,7 @@ const MAX_SUPPORTING_CAST = 6;
 const MAX_SHARED_EVENTS = 3;
 const WORLD_EVENT_MIN_WEIGHT = 0.65;
 const MAX_WORLD_EVENTS = 8;
+const MAX_CONDUIT_PRESENCE = 4;   // ambient watcher lines surfaced per page
 const WORLD_EVENT_WINDOW = TICKS_PER_DAY * 2;
 const NEARBY_AGENT_RADIUS = 5;
 const SUPPORTING_PROXIMITY_RADIUS = 10;
@@ -635,6 +640,17 @@ function collectConflicts(state: WorldState, eventWindow: number): string[] {
     .map((event) => event.description);
 }
 
+// Every Conduit sighting/bond event in the window, world-wide — NOT filtered by
+// thread membership or narrative weight (the way per-character conduitEvents and
+// recentWorldEvents are). This is the channel that guarantees the watchers reach
+// the page as ambient color even when only a minor settler glimpsed one.
+function collectConduitPresence(state: WorldState, eventWindow: number): string[] {
+  return eventsSinceTick(state, eventWindow)
+    .filter((event) => CONDUIT_EVENT_TYPES.has(event.type))
+    .map((event) => event.description)
+    .slice(0, MAX_CONDUIT_PRESENCE);
+}
+
 function collectRecentWorldEvents(
   state: WorldState,
   eventWindow: number,
@@ -702,6 +718,7 @@ function buildWorldContext(state: WorldState, eventWindow: number): WorldContext
     recovered: namesFromRecovered(state, eventWindow),
     conflicts: collectConflicts(state, eventWindow),
     recentWorldEvents: collectRecentWorldEvents(state, eventWindow),
+    conduitPresence: collectConduitPresence(state, eventWindow),
     groupLocation: describeGroupLocation(state),
   };
 }
