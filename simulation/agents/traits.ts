@@ -239,6 +239,19 @@ export function applyTraitOutcome(agent: Agent, outcome: TickOutcome): void {
     case OutcomeType.Rested:
       break;
 
+    case OutcomeType.ChoppedWood:
+      // Felling and hauling timber is how the `building` skill is honed ashore
+      // (previously only trained by maintaining the vessel at sea).
+      applyTraitDelta(agent, outcome, 'endurance', MICRO);
+      if (outcome.success) applySkillDelta(agent, outcome, 'building', SMALL);
+      break;
+
+    case OutcomeType.Built:
+      // Raising a shelter is the purest expression of the building craft.
+      applyTraitDelta(agent, outcome, 'endurance', MICRO);
+      if (outcome.success) applySkillDelta(agent, outcome, 'building', MEDIUM);
+      break;
+
     case OutcomeType.Wandered:
       applyTraitDelta(agent, outcome, 'curiosity', MICRO);
       break;

@@ -45,6 +45,10 @@ export enum ItemType {
   Spear = 'spear',
 }
 
+export enum StructureType {
+  Shelter = 'shelter',   // a hut: anchors the camp and shelters rest
+}
+
 export enum EventType {
   Death = 'death',
   Birth = 'birth',
@@ -128,6 +132,19 @@ export interface Skills {
 }
 
 // ============================================================
+// INVENTORY
+// What an agent carries: raw materials gathered from the land and any
+// crafted or salvaged tools. Wood is chopped from forests and spent on
+// building shelters (and, later, crafting). `items` is empty until a
+// crafting/salvage system fills it.
+// ============================================================
+
+export interface Inventory {
+  wood: number        // chopped timber on hand, 0–1 scale (one full load fells into a build)
+  items: Item[]       // tools carried (Axe, Spear, …); empty until crafting exists
+}
+
+// ============================================================
 // RELATIONSHIP
 // Tracked per agent pair
 // ============================================================
@@ -192,6 +209,7 @@ export interface Agent {
   drives: Drives
   traits: Traits
   skills: Skills
+  inventory: Inventory      // what the agent carries — chopped wood, tools
   relationships: Relationship[]
 
   lineage: {
@@ -240,6 +258,16 @@ export interface Artifact {
   imprinted: boolean  // True if companion has imprinted on it
 }
 
+// A built structure occupying a tile. Raised by depositing chopped wood; rides
+// along with its tile through the dirty-tile checkpoint. progress < 1 means it's
+// still going up; once complete it anchors the camp and shelters rest nearby.
+export interface Structure {
+  type: StructureType
+  progress: number       // 0–1 construction progress
+  woodInvested: number   // total timber deposited (0–1 scale; sums carry-loads)
+  builderIds: string[]   // agents who contributed — for chronicle/significance
+}
+
 export interface WorldTile {
   x: number
   y: number
@@ -249,11 +277,13 @@ export interface WorldTile {
     water: Resource
     material: Resource
     game: Resource          // Local prey/animal population. Hunted down, breeds back slowly.
+    wood: Resource          // Standing timber. Concentrated in forests; chopped for building. Regrows slowly.
   }
   ancientDensity: number    // 0.0–1.0. Higher closer to ruins and source
   artifacts: Artifact[]
   occupants: string[]       // Agent ids currently on this tile
   conduitIds: string[]      // Conduit ids currently on this tile (replaces companionPresent)
+  structure: Structure | null  // a hut or other built thing on this tile; null if none
 }
 
 // ============================================================

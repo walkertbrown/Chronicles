@@ -36,6 +36,10 @@ async function main(): Promise<void> {
       if (home === undefined) {
         agent.home = { x: agent.position.x, y: agent.position.y };
       }
+      const inventory = agent.inventory as import('@shared/types.js').Inventory | undefined;
+      if (inventory === undefined) {
+        agent.inventory = { wood: 0, items: [] };
+      }
     }
   }
   process.on('SIGINT', () => {

@@ -1,5 +1,5 @@
 import seedrandom from 'seedrandom';
-import type { Artifact, Resource, TileCache, TileCacheData, WorldTile } from '@shared/types.js';
+import type { Artifact, Resource, Structure, TileCache, TileCacheData, WorldTile } from '@shared/types.js';
 import { Terrain } from '@shared/types.js';
 import {
   MAP_WIDTH,
@@ -17,27 +17,30 @@ type RNG = () => number;
 // Per-terrain resource MAX: [food (plant forage), water, material, game (prey)].
 // Game reflects realistic prey availability: richest in forest, good on plains and
 // along rivers, sparse in mountains, low on the coast (where fishing substitutes).
-const TERRAIN_RESOURCES: Record<Terrain, [number, number, number, number]> = {
-  [Terrain.Plain]:    [0.5, 0.4, 0.3, 0.6],
-  [Terrain.Forest]:   [0.8, 0.3, 0.7, 0.85],
-  [Terrain.River]:    [0.5, 1.0, 0.2, 0.7],
-  [Terrain.Mountain]: [0.1, 0.2, 0.8, 0.3],
-  [Terrain.Coast]:    [0.4, 0.6, 0.2, 0.25],
-  [Terrain.Ruin]:     [0.1, 0.1, 0.4, 0.2],
-  [Terrain.Vessel]:   [0.1, 0.1, 0.5, 0.0],
+// Per-terrain resource MAX: [food, water, material, game, wood].
+// Wood (standing timber) is heaviest in forest, with copses on plains and
+// riparian growth along rivers; mountains and coast carry only scrub.
+const TERRAIN_RESOURCES: Record<Terrain, [number, number, number, number, number]> = {
+  [Terrain.Plain]:    [0.5, 0.4, 0.3, 0.6,  0.25],
+  [Terrain.Forest]:   [0.8, 0.3, 0.7, 0.85, 0.9],
+  [Terrain.River]:    [0.5, 1.0, 0.2, 0.7,  0.35],
+  [Terrain.Mountain]: [0.1, 0.2, 0.8, 0.3,  0.15],
+  [Terrain.Coast]:    [0.4, 0.6, 0.2, 0.25, 0.1],
+  [Terrain.Ruin]:     [0.1, 0.1, 0.4, 0.2,  0.15],
+  [Terrain.Vessel]:   [0.1, 0.1, 0.5, 0.0,  0.0],
 };
 
-// Per-terrain regen rate per tick: [food, water, material, game].
+// Per-terrain regen rate per tick: [food, water, material, game, wood].
 // Game regenerates SLOWER than plant forage — animal populations breed back
-// gradually, so an over-hunted patch takes many ticks to recover.
-const TERRAIN_REGEN: Record<Terrain, [number, number, number, number]> = {
-  [Terrain.Plain]:    [0.002, 0.001, 0.0005, 0.0015],
-  [Terrain.Forest]:   [0.004, 0.001, 0.001, 0.002],
-  [Terrain.River]:    [0.002, 0.005, 0.0005, 0.0018],
-  [Terrain.Mountain]: [0.0005, 0.001, 0.002, 0.0008],
-  [Terrain.Coast]:    [0.002, 0.003, 0.0005, 0.0012],
-  [Terrain.Ruin]:     [0.0005, 0.0005, 0.001, 0.0008],
-  [Terrain.Vessel]:   [0.0005, 0.0005, 0.001, 0.0],
+// gradually. Wood is slower still: a felled stand takes many seasons to regrow.
+const TERRAIN_REGEN: Record<Terrain, [number, number, number, number, number]> = {
+  [Terrain.Plain]:    [0.002,  0.001,  0.0005, 0.0015, 0.0003],
+  [Terrain.Forest]:   [0.004,  0.001,  0.001,  0.002,  0.0008],
+  [Terrain.River]:    [0.002,  0.005,  0.0005, 0.0018, 0.0004],
+  [Terrain.Mountain]: [0.0005, 0.001,  0.002,  0.0008, 0.0002],
+  [Terrain.Coast]:    [0.002,  0.003,  0.0005, 0.0012, 0.0002],
+  [Terrain.Ruin]:     [0.0005, 0.0005, 0.001,  0.0008, 0.0002],
+  [Terrain.Vessel]:   [0.0005, 0.0005, 0.001,  0.0,    0.0],
 };
 
 // ============================================================
@@ -215,14 +218,15 @@ function makeResource(max: number, regen: number, rng: RNG): Resource {
 }
 
 function makeTileResources(terrain: Terrain, rng: RNG): WorldTile['resources'] {
-  const [foodMax, waterMax, matMax, gameMax] = TERRAIN_RESOURCES[terrain];
-  const [foodRegen, waterRegen, matRegen, gameRegen] = TERRAIN_REGEN[terrain];
+  const [foodMax, waterMax, matMax, gameMax, woodMax] = TERRAIN_RESOURCES[terrain];
+  const [foodRegen, waterRegen, matRegen, gameRegen, woodRegen] = TERRAIN_REGEN[terrain];
   const noise = () => rFloat(rng, 0.85, 1.15);
   return {
     food:     makeResource(foodMax  * noise(), foodRegen,  rng),
     water:    makeResource(waterMax * noise(), waterRegen, rng),
     material: makeResource(matMax   * noise(), matRegen,   rng),
     game:     makeResource(gameMax  * noise(), gameRegen,  rng),
+    wood:     makeResource(woodMax  * noise(), woodRegen,  rng),
   };
 }
 
@@ -274,6 +278,7 @@ function generateTile(
     artifacts: placeArtifacts(terrain, x, y, ancientDensity, rng),
     occupants: [],
     conduitIds: [],
+    structure: null,
   };
 }
 
@@ -353,6 +358,8 @@ export class TileCacheImpl implements TileCache {
     const initialTiles = new Map<string, WorldTile>();
     for (const [k, tile] of Object.entries(data.dirtyTiles)) {
       backfillTileGame(tile, data.seed); // migrate tiles persisted before `game` existed
+      backfillTileWood(tile, data.seed); // migrate tiles persisted before `wood` existed
+      backfillTileStructure(tile);       // migrate tiles persisted before `structure` existed
       initialTiles.set(k, tile);
     }
     return new TileCacheImpl(data.seed, initialTiles);
@@ -368,6 +375,24 @@ function backfillTileGame(tile: WorldTile, seed: number): void {
   const [, , , gameMax] = TERRAIN_RESOURCES[tile.terrain];
   const [, , , gameRegen] = TERRAIN_REGEN[tile.terrain];
   resources.game = makeResource(gameMax * rFloat(rng, 0.85, 1.15), gameRegen, rng);
+}
+
+// Tiles persisted before the `wood` resource was added lack it. Backfill a
+// fresh timber stock from the tile's terrain so chopping never hits undefined.
+function backfillTileWood(tile: WorldTile, seed: number): void {
+  const resources = tile.resources as Record<string, Resource>;
+  if (resources.wood !== undefined) return;
+  const rng = getTileRng(seed, tile.x, tile.y);
+  const [, , , , woodMax] = TERRAIN_RESOURCES[tile.terrain];
+  const [, , , , woodRegen] = TERRAIN_REGEN[tile.terrain];
+  resources.wood = makeResource(woodMax * rFloat(rng, 0.85, 1.15), woodRegen, rng);
+}
+
+// Tiles persisted before structures existed lack the field; default it to null
+// so build/anchor code can read tile.structure without hitting undefined.
+function backfillTileStructure(tile: WorldTile): void {
+  const t = tile as { structure?: Structure | null };
+  if (t.structure === undefined) t.structure = null;
 }
 
 // ============================================================

@@ -66,6 +66,11 @@ function buildStateSnapshot(state: WorldState): {
     resources: unknown;
     occupants: string[];
   }>;
+  structures: Array<{
+    position: { x: number; y: number };
+    type: string;
+    progress: number;
+  }>;
   latestSummary: { worldNow: string } | null;
 } {
   const tiles: Array<{
@@ -76,7 +81,21 @@ function buildStateSnapshot(state: WorldState): {
     occupants: string[];
   }> = [];
 
+  // Built structures (huts) live on their tiles; surface them for rendering.
+  const structures: Array<{
+    position: { x: number; y: number };
+    type: string;
+    progress: number;
+  }> = [];
+
   for (const tile of state.tiles.getDirtyTiles().values()) {
+    if (tile.structure !== null) {
+      structures.push({
+        position: { x: tile.x, y: tile.y },
+        type: tile.structure.type,
+        progress: tile.structure.progress,
+      });
+    }
     if (tile.occupants.length === 0 && tile.conduitIds.length === 0) continue;
     tiles.push({
       x: tile.x,
@@ -133,6 +152,7 @@ function buildStateSnapshot(state: WorldState): {
         bondType: c.bondType,
       })),
     tiles,
+    structures,
     latestSummary: state.latestSummary !== null ? { worldNow: state.latestSummary.worldNow } : null,
   };
 }

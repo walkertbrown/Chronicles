@@ -207,6 +207,7 @@ function spawnChild(
       fire: CHILD_SKILL_BASE,
       healing: CHILD_SKILL_BASE,
     },
+    inventory: { wood: 0, items: [] }, // born carrying nothing
     relationships: [],
     lineage: {
       motherId: mother.id,

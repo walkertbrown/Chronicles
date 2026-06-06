@@ -411,6 +411,37 @@ export default function WorldPage() {
                 );
               })()}
 
+            {/* shelters (huts) — raised at settled camps; faded frame while building */}
+            {worldSnapshot !== null &&
+              (worldSnapshot.structures ?? []).map((s) => {
+                const [hx, hy] = tileToSvg(s.position.x, s.position.y);
+                const done = s.progress >= 1;
+                const w = 9 * mk;
+                const bodyH = 6 * mk;
+                const roofH = 5 * mk;
+                const dash = done ? '0' : `${1.5 * mk} ${1.5 * mk}`;
+                return (
+                  <g key={`hut_${s.position.x}_${s.position.y}`} opacity={done ? 0.95 : 0.5}>
+                    <rect
+                      x={hx - w / 2}
+                      y={hy - bodyH}
+                      width={w}
+                      height={bodyH}
+                      fill="#7a5a3a"
+                      stroke="#4a3420"
+                      strokeWidth={mk}
+                      strokeDasharray={dash}
+                    />
+                    <path
+                      d={`M ${hx - w / 2 - mk} ${hy - bodyH} L ${hx} ${hy - bodyH - roofH} L ${hx + w / 2 + mk} ${hy - bodyH} Z`}
+                      fill={done ? '#9a6a3a' : '#6a5038'}
+                      stroke="#4a3420"
+                      strokeWidth={mk}
+                    />
+                  </g>
+                );
+              })}
+
             {/* agents (only once beached and on the land grid) */}
             {worldSnapshot !== null &&
               worldSnapshot.vessel.beached &&

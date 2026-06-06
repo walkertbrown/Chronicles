@@ -12,6 +12,8 @@ export enum OutcomeType {
   DrankWater = 'drank_water',      // Agent drank water from a tile or vessel
   Rested = 'rested',               // Agent rested — fatigue reduced
   AteSomething = 'ate_something',  // Alias for consumed food from vessel stores
+  ChoppedWood = 'chopped_wood',    // Agent chopped timber from a forest tile (or moved toward one)
+  Built = 'built',                 // Agent worked on raising a shelter at the camp
 
   // Movement
   Wandered = 'wandered',           // Agent moved without a specific goal

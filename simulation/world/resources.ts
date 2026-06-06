@@ -45,6 +45,9 @@ export function tickAllResources(tiles: TileCache, season: Season): void {
     regenResource(tile.resources.water, modifier);
     regenResource(tile.resources.material, modifier);
     regenResource(tile.resources.game, modifier);
+    // `wood` may be absent on a tile loaded from a pre-wood checkpoint until its
+    // lazy backfill runs; guard so regen never dereferences undefined.
+    if (tile.resources.wood !== undefined) regenResource(tile.resources.wood, modifier);
     applyCoastFoodFloor(tile);
   }
 }
