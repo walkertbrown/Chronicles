@@ -145,7 +145,16 @@ export async function generateChronicle(
     };
   }
 
-  const prompt = buildChroniclePrompt(packages, state.vessel.beached);
+  // The most recent page before today — fed into the prompt so the writer can
+  // see what it already wrote and avoid repeating its images, exchanges, and
+  // closing moves (the chief flattening risk over a long-running chronicle).
+  const priorPages = state.chroniclePages
+    .filter((p) => (p.day ?? 0) < state.day)
+    .sort((a, b) => (a.order ?? a.day ?? 0) - (b.order ?? b.day ?? 0));
+  const previousPage =
+    priorPages.length > 0 ? (priorPages[priorPages.length - 1]?.fullPage ?? null) : null;
+
+  const prompt = buildChroniclePrompt(packages, state.vessel.beached, previousPage);
 
   try {
     await ensurePrologueSeeded(state);
@@ -182,7 +191,8 @@ better is the goal, not shorter.
 One requirement: every thread section must end on a complete sentence.
 The ending should feel like a door left open, not a sentence cut off.
 A man still watching something. A question not yet answered. A decision
-not yet made. End in motion — but end.`;
+not yet made. End unresolved — a held breath — but on a complete sentence,
+and not on someone merely walking toward something.`;
 
     const revisionResponse = await client.messages.create({
       model: CHRONICLE_MODEL,
