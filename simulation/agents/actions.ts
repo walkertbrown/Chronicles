@@ -1,8 +1,8 @@
 // simulation/agents/actions.ts
 // Determines and executes each agent's action per tick based on dominant drive.
 
-import type { Agent, Drives, WorldState, WorldTile } from '@shared/types.js';
-import { BondType, EventType, Terrain } from '@shared/types.js';
+import type { Agent, Drives, Inventory, Structure, WorldState, WorldTile } from '@shared/types.js';
+import { BondType, EventType, StructureType, Terrain } from '@shared/types.js';
 import { fatigueModifier } from './drives.js';
 import { isSick, illnessSeverity, illnessSkillMultiplier, checkWoundInfection } from './illness.js';
 import { OutcomeType, type TickOutcome } from './outcomes.js';
@@ -84,6 +84,27 @@ const MATE_HOME_PULL = 0.06;       // mates share a hearth — their camps ease 
 const HOME_LEASH_BASE = 6;         // worked radius for a fully gregarious agent
 const HOME_LEASH_ROAM = 30;        // extra leash a pure loner gets (× (1 - sociability))
 const LEASH_PENALTY = 0.5;         // how hard appeal drops per tile beyond the leash
+
+// Wood & provisioning. A content, unhurried agent fells timber from a nearby
+// stand and shoulders it home. Phase 1 stockpiles wood on the agent; building a
+// shelter (Phase 2) is what spends it.
+const WOOD_CHOP_BASE = 0.06;        // timber taken per chop, before the building-skill bonus
+const WOOD_CHOP_SKILL_BONUS = 0.5;  // a fully skilled builder fells +50% per swing
+const WOOD_CARRY_CAP = 1.0;         // most timber an agent shoulders before its hands are full
+const WOOD_TILE_MIN = 0.05;         // a stand must hold at least this much to be worth working
+const WOOD_CHOP_FATIGUE = 0.03;     // chopping is real labour
+const WOOD_SEARCH_RADIUS = 6;       // how far an idle agent scans for a stand of timber
+const PROVISION_HUNGER_MAX = 0.45;  // don't lay up wood while hunger presses
+const PROVISION_FATIGUE_MAX = 0.55; // ...nor while worn out
+
+// Shelters. A content, sociable band hauls its chopped wood to the camp and
+// raises a hut. Once finished it anchors the camp (the hearth stops drifting)
+// and shelters rest. This is what gives wood-gathering a purpose.
+const HUT_WOOD_REQUIRED = 2.0;        // total timber to complete a shelter (~2 full loads)
+const BUILD_FATIGUE = 0.03;           // raising a frame is real labour
+const BUILDER_MIN_SOCIABILITY = 0.25; // pure loners don't invest in a shared camp
+const BUILD_SOCIAL_RELIEF = 0.02;     // working the camp alongside kin eases the social pull
+const SHELTER_REST_BONUS = 1.6;       // fatigue recovers faster resting in a finished hut
 
 // Survival drives outrank social/emotional ones once they cross this urgency.
 const SURVIVAL_DRIVES: Array<keyof Drives> = ['hunger', 'fatigue', 'fear'];
@@ -410,9 +431,9 @@ function isOnOrAdjacentToVessel(agent: Agent, state: WorldState): boolean {
   );
 }
 
-function restoreFatigue(agent: Agent): void {
+function restoreFatigue(agent: Agent, multiplier = 1): void {
   const restore =
-    FATIGUE_RESTORE_REST * fatigueModifier(agent.drives.fatigue);
+    FATIGUE_RESTORE_REST * fatigueModifier(agent.drives.fatigue) * multiplier;
   agent.drives.fatigue = clamp01(agent.drives.fatigue - restore);
 }
 
@@ -682,8 +703,12 @@ function actionDrinkWater(agent: Agent, state: WorldState): TickOutcome {
   });
 }
 
-function actionRest(agent: Agent): TickOutcome {
-  restoreFatigue(agent);
+function actionRest(agent: Agent, state: WorldState): TickOutcome {
+  // A finished shelter at the resting spot lets the band recover faster.
+  const tile = getTile(state.tiles, agent.position.x, agent.position.y);
+  const sheltered =
+    tile?.structure?.type === StructureType.Shelter && tile.structure.progress >= 1;
+  restoreFatigue(agent, sheltered ? SHELTER_REST_BONUS : 1);
   return makeOutcome(agent, { type: OutcomeType.Rested, success: true });
 }
 
@@ -1065,6 +1090,15 @@ function getHome(agent: Agent): { x: number; y: number } {
   return agent.home;
 }
 
+// The agent's pack. Lazily backfilled for agents restored from a checkpoint
+// written before inventories existed (they start empty-handed).
+function getInventory(agent: Agent): Inventory {
+  const existing = agent.inventory as Inventory | undefined;
+  if (existing !== undefined) return existing;
+  agent.inventory = { wood: 0, items: [] };
+  return agent.inventory;
+}
+
 // The pair-bonded partner an agent shares a hearth with (highest-trust Pair
 // bond), or null if unpartnered.
 function findMate(agent: Agent, state: WorldState): Agent | undefined {
@@ -1090,6 +1124,10 @@ function findMate(agent: Agent, state: WorldState): Agent | undefined {
 // family rather than drifting apart.
 function driftHome(agent: Agent, state: WorldState): void {
   const home = getHome(agent);
+  // Once a hut stands at the camp the band is settled: the hearth no longer
+  // drifts toward fresh forage — it stays put with the shelter.
+  const campTile = getTile(state.tiles, Math.round(home.x), Math.round(home.y));
+  if (campTile?.structure?.type === StructureType.Shelter) return;
   home.x += HOME_DRIFT * (agent.position.x - home.x);
   home.y += HOME_DRIFT * (agent.position.y - home.y);
 
@@ -1262,6 +1300,161 @@ function actionFish(agent: Agent, state: WorldState): TickOutcome {
 }
 
 // ============================================================
+// WOOD — chopping timber for building
+// ============================================================
+
+// The richest stand of timber within `radius` worth walking to (a slight
+// distance discount keeps them from crossing the map for a marginally fuller
+// tree), or undefined if nothing in sight holds enough wood.
+function findBestWoodTile(
+  state: WorldState,
+  x: number,
+  y: number,
+  radius: number,
+): WorldTile | undefined {
+  const candidates = getTilesInRange(state.tiles, x, y, radius);
+  let best: WorldTile | undefined;
+  let bestScore = -Infinity;
+  for (const tile of candidates) {
+    if (!isPassable(tile.terrain, state.vessel.beached) || isVesselZone(tile.y)) continue;
+    const wood = tile.resources.wood?.current ?? 0;
+    if (wood < WOOD_TILE_MIN) continue;
+    const score = wood - FORAGE_DIST_WEIGHT * manhattanDistance(tile.x, tile.y, x, y);
+    if (score > bestScore) {
+      bestScore = score;
+      best = tile;
+    }
+  }
+  return best;
+}
+
+// Chop the stand underfoot if there is one and the agent can still carry more;
+// otherwise step toward the timber it already spotted. `target` is the stand the
+// caller found this tick, so the neighbourhood isn't scanned twice.
+function actionChopWood(agent: Agent, state: WorldState, target: WorldTile): TickOutcome {
+  const tile = getTile(state.tiles, agent.position.x, agent.position.y);
+  const inv = getInventory(agent);
+  const woodHere = tile?.resources.wood?.current ?? 0;
+
+  if (tile !== undefined && woodHere >= WOOD_TILE_MIN && inv.wood < WOOD_CARRY_CAP) {
+    const taken = Math.min(
+      WOOD_CHOP_BASE * (0.5 + agent.skills.building * WOOD_CHOP_SKILL_BONUS) * illnessSkillMultiplier(agent),
+      woodHere,
+      WOOD_CARRY_CAP - inv.wood,
+    );
+    tile.resources.wood.current = Math.max(0, woodHere - taken);
+    markTileDirty(state.tiles, tile.x, tile.y); // a felled stand now regrows
+    inv.wood = Math.min(WOOD_CARRY_CAP, inv.wood + taken);
+    agent.drives.fatigue = clamp01(agent.drives.fatigue + WOOD_CHOP_FATIGUE);
+    markDiscovered(agent, tile.x, tile.y);
+    return makeOutcome(agent, { type: OutcomeType.ChoppedWood, success: true, amountGained: taken });
+  }
+
+  if (target.x !== agent.position.x || target.y !== agent.position.y) {
+    stepAgentToward(agent, target.x, target.y, state);
+    return makeOutcome(agent, { type: OutcomeType.ChoppedWood, success: false, partial: true });
+  }
+  return makeOutcome(agent, { type: OutcomeType.ChoppedWood, success: false, partial: false });
+}
+
+// What a content agent does with no pressing drive: work on the camp shelter if
+// there's one to raise, else lay up a little timber, else explore or wander.
+function actionIdle(agent: Agent, state: WorldState): TickOutcome {
+  const camp = tryCampWork(agent, state);
+  if (camp !== null) return camp;
+  if (
+    agent.drives.hunger <= PROVISION_HUNGER_MAX &&
+    agent.drives.fatigue <= PROVISION_FATIGUE_MAX &&
+    getInventory(agent).wood < WOOD_CARRY_CAP
+  ) {
+    const stand = findBestWoodTile(state, agent.position.x, agent.position.y, WOOD_SEARCH_RADIUS);
+    if (stand !== undefined) return actionChopWood(agent, state, stand);
+  }
+  return agent.traits.curiosity >= CURIOSITY_EXPLORE_THRESHOLD
+    ? actionExplore(agent, state)
+    : actionWander(agent, state);
+}
+
+// ============================================================
+// SHELTER — raising a hut at the camp
+// ============================================================
+
+// The camp's anchor tile: the agent's drifting hearth rounded to a tile.
+function campTileOf(agent: Agent): { x: number; y: number } {
+  const home = getHome(agent);
+  return { x: Math.round(home.x), y: Math.round(home.y) };
+}
+
+// Carry chopped wood to the camp and raise (or extend) the shelter there. Steps
+// toward camp if not yet adjacent; deposits whatever timber the agent is holding.
+function actionBuild(agent: Agent, state: WorldState): TickOutcome {
+  const camp = campTileOf(agent);
+  if (manhattanDistance(agent.position.x, agent.position.y, camp.x, camp.y) > 1) {
+    stepAgentToward(agent, camp.x, camp.y, state);
+    return makeOutcome(agent, { type: OutcomeType.Built, success: false, partial: true });
+  }
+
+  const tile = getTile(state.tiles, camp.x, camp.y);
+  if (tile === undefined || !isPassable(tile.terrain, state.vessel.beached) || isVesselZone(tile.y)) {
+    return makeOutcome(agent, { type: OutcomeType.Built, success: false, partial: false });
+  }
+
+  let hut = tile.structure;
+  if (hut === null) {
+    hut = { type: StructureType.Shelter, progress: 0, woodInvested: 0, builderIds: [] };
+    tile.structure = hut;
+  } else if (hut.type !== StructureType.Shelter || hut.progress >= 1) {
+    return makeOutcome(agent, { type: OutcomeType.Built, success: false, partial: false });
+  }
+
+  const inv = getInventory(agent);
+  const deposit = Math.min(inv.wood, HUT_WOOD_REQUIRED - hut.woodInvested);
+  if (deposit <= 0) {
+    return makeOutcome(agent, { type: OutcomeType.Built, success: false, partial: false });
+  }
+
+  inv.wood -= deposit;
+  hut.woodInvested += deposit;
+  hut.progress = clamp01(hut.woodInvested / HUT_WOOD_REQUIRED);
+  if (!hut.builderIds.includes(agent.id)) hut.builderIds.push(agent.id);
+  agent.drives.fatigue = clamp01(agent.drives.fatigue + BUILD_FATIGUE);
+  agent.drives.socialNeed = clamp01(agent.drives.socialNeed - BUILD_SOCIAL_RELIEF);
+  agent.drives.longing = clamp01(agent.drives.longing - BUILD_SOCIAL_RELIEF);
+  markTileDirty(state.tiles, camp.x, camp.y);
+
+  // Settle: pin the hearth to the hut so the camp stops drifting.
+  const home = getHome(agent);
+  home.x = camp.x;
+  home.y = camp.y;
+  markDiscovered(agent, camp.x, camp.y);
+
+  return makeOutcome(agent, { type: OutcomeType.Built, success: true, amountGained: deposit });
+}
+
+// If this agent should be working on the camp shelter right now, return the
+// build/haul/chop step; otherwise null. This is the driver behind the wood
+// economy: sociable, content agents fell timber, carry it home, and raise the hut.
+function tryCampWork(agent: Agent, state: WorldState): TickOutcome | null {
+  if (agent.traits.sociability < BUILDER_MIN_SOCIABILITY) return null; // loners don't build a shared camp
+  if (agent.drives.hunger > PROVISION_HUNGER_MAX || agent.drives.fatigue > PROVISION_FATIGUE_MAX) return null;
+
+  const camp = campTileOf(agent);
+  const campTile = getTile(state.tiles, camp.x, camp.y);
+  if (campTile === undefined || !isPassable(campTile.terrain, state.vessel.beached) || isVesselZone(campTile.y)) {
+    return null; // camp sits on water/vessel — nowhere to build
+  }
+
+  const hut = campTile.structure;
+  if (hut !== null && hut.type === StructureType.Shelter && hut.progress >= 1) return null; // already sheltered
+
+  // Carrying timber → take it home and build. Empty-handed → go fell some.
+  if (getInventory(agent).wood > 0) return actionBuild(agent, state);
+  const stand = findBestWoodTile(state, agent.position.x, agent.position.y, WOOD_SEARCH_RADIUS + 4);
+  if (stand !== undefined) return actionChopWood(agent, state, stand);
+  return null;
+}
+
+// ============================================================
 // ACTION DESCRIPTION
 // Translates an outcome into plain English for the frontend detail panel.
 // Called once per tick per agent after the outcome is determined.
@@ -1295,6 +1488,16 @@ function describeOutcome(outcome: TickOutcome, agent: Agent): string {
 
     case OutcomeType.Rested:
       return 'Resting';
+
+    case OutcomeType.ChoppedWood:
+      if (outcome.success) return 'Chopping wood';
+      if (outcome.partial) return 'Heading for timber';
+      return 'Looking for timber to fell';
+
+    case OutcomeType.Built:
+      if (outcome.success) return 'Raising a shelter';
+      if (outcome.partial) return 'Hauling timber to camp';
+      return 'Sizing up the camp';
 
     case OutcomeType.Wandered:
       return agent.drives.grief > 0.6 ? 'Moving without direction' : 'Wandering';
@@ -1447,10 +1650,7 @@ export function executeAgentAction(
   let outcome: TickOutcome;
 
   if (drive === null) {
-    outcome =
-      agent.traits.curiosity >= CURIOSITY_EXPLORE_THRESHOLD
-        ? actionExplore(agent, state)
-        : actionWander(agent, state);
+    outcome = actionIdle(agent, state);
   } else {
     switch (drive) {
       case 'hunger': {
@@ -1465,7 +1665,7 @@ export function executeAgentAction(
         break;
       }
       case 'fatigue':
-        outcome = actionRest(agent);
+        outcome = actionRest(agent, state);
         break;
       case 'fear':
         outcome =
@@ -1473,10 +1673,19 @@ export function executeAgentAction(
             ? actionStandGround(agent)
             : actionFlee(agent, state);
         break;
-      case 'socialNeed':
-        outcome = actionMoveTowardSocial(agent, state);
+      case 'socialNeed': {
+        // Working the shared camp alongside kin answers the need for company —
+        // so a settled band raises its hut instead of milling about.
+        const camp = tryCampWork(agent, state);
+        outcome = camp !== null ? camp : actionMoveTowardSocial(agent, state);
         break;
+      }
       case 'longing': {
+        const camp = tryCampWork(agent, state);
+        if (camp !== null) {
+          outcome = camp;
+          break;
+        }
         const target = findLongingTarget(agent, state);
         outcome = actionMoveTowardSocial(agent, state, target);
         break;

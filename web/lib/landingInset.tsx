@@ -311,6 +311,38 @@ export function LandingInset({
           <rect x={vpx - 0.5} y={vpy - 6} width={1} height={6} fill="#6a5040" />
         </g>
 
+        {/* shelters in-frame — huts at settled camps (faded frame while building) */}
+        {(snapshot.structures ?? []).map((s) => {
+          if (s.position.x < winX0 || s.position.x > winX1) return null;
+          if (s.position.y < winY0 || s.position.y > winY1) return null;
+          const px = toPxX(s.position.x + 0.5);
+          const py = toPxY(s.position.y + 0.5);
+          const done = s.progress >= 1;
+          const w = 5;
+          const bodyH = 3.5;
+          const roofH = 3;
+          return (
+            <g key={`hut_${s.position.x}_${s.position.y}`} opacity={done ? 0.95 : 0.55}>
+              <rect
+                x={px - w / 2}
+                y={py - bodyH}
+                width={w}
+                height={bodyH}
+                fill="#7a5a3a"
+                stroke="#4a3420"
+                strokeWidth={0.5}
+                strokeDasharray={done ? '0' : '1 1'}
+              />
+              <polygon
+                points={`${px - w / 2 - 0.6},${py - bodyH} ${px},${py - bodyH - roofH} ${px + w / 2 + 0.6},${py - bodyH}`}
+                fill={done ? '#9a6a3a' : '#6a5038'}
+                stroke="#4a3420"
+                strokeWidth={0.5}
+              />
+            </g>
+          );
+        })}
+
         {/* conduits in-frame (rare this close to shore, but show if present) */}
         {snapshot.conduits.map((conduit) => {
           if (conduit.position.x < winX0 || conduit.position.x > winX1) return null;

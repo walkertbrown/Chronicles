@@ -104,6 +104,12 @@ export interface BondedConduitSnapshot {
   bondType: 'light' | 'dark';
 }
 
+export interface StructureSnapshot {
+  position: { x: number; y: number };
+  type: string;       // 'shelter', …
+  progress: number;   // 0–1; < 1 = still under construction
+}
+
 export interface ChronicleThread {
   familyName: string;
   primaryAgentId: string;
@@ -138,6 +144,7 @@ export interface WorldSnapshot {
   vessel: { beached: boolean; position: { x: number; y: number } };
   agents: AgentSnapshot[];
   conduits: BondedConduitSnapshot[];
+  structures?: StructureSnapshot[];   // optional: absent until the sim worker is redeployed
   tiles: TileSnapshot[];
   latestSummary?: { worldNow: string } | null;
 }

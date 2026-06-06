@@ -666,6 +666,7 @@ export function initializeAgents(
       drives: generateDrives(blueprint.role, blueprint.nearlyDiedOnCrossing),
       traits: generateTraits(blueprint.role, rng),
       skills: generateSkills(rng),
+      inventory: { wood: 0, items: [] }, // empty-handed at landfall
       relationships: [],
       lineage: {
         motherId: null,
