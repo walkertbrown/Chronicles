@@ -147,6 +147,13 @@ export interface WorldSnapshot {
   agents: AgentSnapshot[];
   conduits: BondedConduitSnapshot[];
   structures?: StructureSnapshot[];   // optional: absent until the sim worker is redeployed
+  source?: SourceSnapshot;            // the contested device beyond the ruins (optional until sim redeploy)
   tiles: TileSnapshot[];
   latestSummary?: { worldNow: string } | null;
+}
+
+export interface SourceSnapshot {
+  position: { x: number; y: number };
+  control: number;                    // -1 (old gods) … 0 (dormant) … +1 (Unbound)
+  state: 'dormant' | 'light' | 'dark';
 }

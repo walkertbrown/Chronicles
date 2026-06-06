@@ -32,6 +32,8 @@ const NARRATIVE_WEIGHTS: Record<EventType, number> = {
   [EventType.ConduitBondLight]: 0.92,
   [EventType.ConduitBondDark]: 0.95,
   [EventType.ConduitBondBroken]: 0.75,
+  [EventType.SourceAwakened]: 0.98,   // the door beyond the ruins opens — the largest beat there is
+  [EventType.SourceShifted]: 0.95,    // control of the source flips light↔dark
 };
 
 // ============================================================

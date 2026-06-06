@@ -5,7 +5,7 @@
 
 import seedrandom from 'seedrandom';
 import { Season, type ConduitBeing } from '@shared/types.js';
-import { TileCacheImpl, createTileCache } from './tileCache.js';
+import { TileCacheImpl, createTileCache, computeSourcePosition } from './tileCache.js';
 
 // ============================================================
 // CONSTANTS
@@ -43,6 +43,7 @@ function rInt(rng: RNG, min: number, max: number): number {
 export interface GeneratedWorld {
   tiles: TileCacheImpl;
   conduits: ConduitBeing[];
+  source: { x: number; y: number };
   vesselStart: { x: number; y: number };
   landingZone: { xMin: number; xMax: number; y: number };
   startingSeason: Season;
@@ -165,5 +166,7 @@ export function generateWorld(seed: number): GeneratedWorld {
   const seasons: Season[] = [Season.Spring, Season.Summer, Season.Autumn, Season.Winter];
   const startingSeason = seasons[seasonIndex] ?? Season.Spring;
 
-  return { tiles, conduits, vesselStart, landingZone, startingSeason };
+  const source = computeSourcePosition(seed);
+
+  return { tiles, conduits, source, vesselStart, landingZone, startingSeason };
 }

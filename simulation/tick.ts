@@ -17,6 +17,7 @@ import {
 } from './agents/traits.js';
 import { detectDeaths, getTopAgentsBySignificance, tickSignificance } from './agents/significance.js';
 import { createConduits, tickAllConduits } from './companions/being.js';
+import { tickSource } from './source/source.js';
 import {
   logDeathEvent,
   logEvent,
@@ -88,6 +89,7 @@ export function createWorldState(seed: number, worldId: string): WorldState {
     agents,
     tiles: world.tiles,
     conduits: world.conduits,
+    source: { position: world.source, control: 0 },
     vessel,
     eventLog: [],
     chroniclePages: [],
@@ -389,6 +391,14 @@ export function tick(state: WorldState, rng: () => number): TickSummary {
   for (const event of conduitEvents) {
     state.eventLog.push(event);
   }
+
+  // The contested source beyond the ruins — dormant until a bonded pilgrim
+  // reaches it; its climactic opening/flip events join the log.
+  const sourceEvents = tickSource(state);
+  for (const event of sourceEvents) {
+    state.eventLog.push(event);
+  }
+
   if (state.eventLog.length > 500) {
     state.eventLog = state.eventLog.slice(-500);
   }
