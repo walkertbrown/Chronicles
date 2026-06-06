@@ -16,6 +16,7 @@ export enum OutcomeType {
   Built = 'built',                 // Agent worked on raising a shelter at the camp
   TendedFire = 'tended_fire',      // Agent fed/lit the hearth at the camp shelter
   Crafted = 'crafted',             // Agent fashioned a tool (axe, spear) from wood
+  SoughtSource = 'sought_source',  // A bonded soul journeyed toward / communed at the source
 
   // Movement
   Wandered = 'wandered',           // Agent moved without a specific goal

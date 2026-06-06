@@ -129,6 +129,15 @@ const SPEAR_WEAR_PER_HUNT = 0.02;   // a spear wears faster in the hunt
 const CRAFT_FATIGUE = 0.03;         // shaping a tool is patient work
 const HUNTER_SPEAR_SKILL = 0.4;     // only practised hunters bother knapping a spear
 
+// The call of the source. A bonded soul is drawn to make the long pilgrimage to
+// the device beyond the ruins — light to claim it for the Unbound, dark to open
+// it to the old gods. Survival still comes first; this is not forced bonding, it
+// is only what an already-bonded soul does when nothing more urgent presses.
+const SOURCE_CALL_HUNGER_MAX = 0.5;
+const SOURCE_CALL_FATIGUE_MAX = 0.55;
+const SOURCE_CALL_FEAR_MAX = 0.5;
+const SOURCE_REACH = 1; // on or adjacent to the source counts as standing at the threshold
+
 // Survival drives outrank social/emotional ones once they cross this urgency.
 const SURVIVAL_DRIVES: Array<keyof Drives> = ['hunger', 'fatigue', 'fear'];
 const SURVIVAL_PRIORITY_THRESHOLD = 0.35;
@@ -1589,6 +1598,34 @@ function tryCampWork(agent: Agent, state: WorldState): TickOutcome | null {
 }
 
 // ============================================================
+// THE SOURCE — the bonded soul's pilgrimage
+// ============================================================
+
+// Whether a bonded soul heeds the call of the source this tick. Only the bonded
+// feel it, and only when nothing more urgent presses — survival always wins, so
+// a pilgrim forages and rests along the way rather than marching to their death.
+function shouldHeedSourceCall(agent: Agent, state: WorldState): boolean {
+  if (agent.conduitBondType === null) return false;
+  if (agent.drives.hunger > SOURCE_CALL_HUNGER_MAX) return false;
+  if (agent.drives.fatigue > SOURCE_CALL_FATIGUE_MAX) return false;
+  if (agent.drives.fear > SOURCE_CALL_FEAR_MAX) return false;
+  return true;
+}
+
+// Step toward the source, or — once at its threshold — stand and commune. Just
+// being there is the act: tickSource reads bonded presence to move the needle,
+// so a light soul standing here pulls it toward the Unbound, a dark one toward
+// the old gods. The contest is presence.
+function actionJourneyToSource(agent: Agent, state: WorldState): TickOutcome {
+  const src = state.source.position;
+  if (manhattanDistance(agent.position.x, agent.position.y, src.x, src.y) <= SOURCE_REACH) {
+    return makeOutcome(agent, { type: OutcomeType.SoughtSource, success: true });
+  }
+  stepAgentToward(agent, src.x, src.y, state);
+  return makeOutcome(agent, { type: OutcomeType.SoughtSource, success: false, partial: true });
+}
+
+// ============================================================
 // ACTION DESCRIPTION
 // Translates an outcome into plain English for the frontend detail panel.
 // Called once per tick per agent after the outcome is determined.
@@ -1642,6 +1679,14 @@ function describeOutcome(outcome: TickOutcome, agent: Agent): string {
       if (outcome.success) return 'Crafting a tool';
       if (outcome.partial) return 'Heading to the workbench';
       return 'Short of wood to craft';
+
+    case OutcomeType.SoughtSource:
+      if (outcome.success) {
+        return agent.conduitBondType === 'dark'
+          ? 'Pressing at the threshold beyond the ruins'
+          : 'Communing at the threshold beyond the ruins';
+      }
+      return 'Drawn toward something beyond the ruins';
 
     case OutcomeType.Wandered:
       return agent.drives.grief > 0.6 ? 'Moving without direction' : 'Wandering';
@@ -1785,6 +1830,16 @@ export function executeAgentAction(
 
   if (shouldNobilityHelp(agent, state)) {
     const o = actionHelp(agent, state);
+    outcomes.push(o);
+    agent.currentAction = describeOutcome(o, agent);
+    return;
+  }
+
+  // A bonded soul, unpressed by survival, answers the call of the source and
+  // makes the long pilgrimage beyond the ruins. Outranks ordinary life; the gate
+  // yields to acute hunger/fatigue/fear so they survive the journey.
+  if (shouldHeedSourceCall(agent, state)) {
+    const o = actionJourneyToSource(agent, state);
     outcomes.push(o);
     agent.currentAction = describeOutcome(o, agent);
     return;
