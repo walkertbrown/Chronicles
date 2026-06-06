@@ -87,6 +87,7 @@ export interface AgentSnapshot {
   conduitId: string | null;
   conduitBondType: 'light' | 'dark' | null;
   currentAction: string | null;
+  inventory?: { wood: number; tools: string[] };  // optional until the sim redeploys
 }
 
 export interface TileSnapshot {

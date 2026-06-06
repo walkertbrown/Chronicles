@@ -257,6 +257,11 @@ export function applyTraitOutcome(agent: Agent, outcome: TickOutcome): void {
       if (outcome.success) applySkillDelta(agent, outcome, 'fire', SMALL);
       break;
 
+    case OutcomeType.Crafted:
+      // Shaping tools is the building craft applied at the workbench.
+      if (outcome.success) applySkillDelta(agent, outcome, 'building', SMALL);
+      break;
+
     case OutcomeType.Wandered:
       applyTraitDelta(agent, outcome, 'curiosity', MICRO);
       break;

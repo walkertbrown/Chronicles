@@ -15,6 +15,7 @@ export enum OutcomeType {
   ChoppedWood = 'chopped_wood',    // Agent chopped timber from a forest tile (or moved toward one)
   Built = 'built',                 // Agent worked on raising a shelter at the camp
   TendedFire = 'tended_fire',      // Agent fed/lit the hearth at the camp shelter
+  Crafted = 'crafted',             // Agent fashioned a tool (axe, spear) from wood
 
   // Movement
   Wandered = 'wandered',           // Agent moved without a specific goal
