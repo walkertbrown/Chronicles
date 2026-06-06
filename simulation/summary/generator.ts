@@ -5,10 +5,17 @@ import { buildSummaryPrompt } from './prompt.js';
 const SUMMARY_PROD_MIN_HOURS = 1;
 const SUMMARY_DEV_MIN_HOURS = 1;
 
+// How many in-world ticks to let pass before the very first brief. Tick-based on
+// purpose: the old gate keyed off state.lastCheckpoint, which is rewritten every
+// checkpoint, so `now - lastCheckpoint` never exceeded its threshold on an
+// always-on worker and a fresh world's first brief would never fire.
+const SUMMARY_WARMUP_TICKS = 3;
+
 export function shouldGenerateSummary(state: WorldState, runMode: string): boolean {
   if (state.lastSummaryGeneratedAt === null) {
-    // First summary: fire after at least 10 real minutes have elapsed
-    return (Date.now() - new Date(state.lastCheckpoint).getTime()) > 1000 * 60 * 10;
+    // First brief: fire once the world has taken a few steps. (A world restored
+    // with no prior brief is already past this, so it fires on the next tick.)
+    return state.tick >= SUMMARY_WARMUP_TICKS;
   }
 
   const minHours = runMode === 'production' ? SUMMARY_PROD_MIN_HOURS : SUMMARY_DEV_MIN_HOURS;
