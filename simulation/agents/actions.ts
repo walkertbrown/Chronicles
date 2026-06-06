@@ -1,8 +1,8 @@
 // simulation/agents/actions.ts
 // Determines and executes each agent's action per tick based on dominant drive.
 
-import type { Agent, Drives, Inventory, Structure, WorldState, WorldTile } from '@shared/types.js';
-import { BondType, EventType, Season, StructureType, Terrain } from '@shared/types.js';
+import type { Agent, Drives, Inventory, Item, Structure, WorldState, WorldTile } from '@shared/types.js';
+import { BondType, EventType, ItemType, Season, StructureType, Terrain } from '@shared/types.js';
 import { fatigueModifier } from './drives.js';
 import { isSick, illnessSeverity, illnessSkillMultiplier, checkWoundInfection } from './illness.js';
 import { OutcomeType, type TickOutcome } from './outcomes.js';
@@ -115,6 +115,19 @@ const FIRE_REST_BONUS = 1.3;      // extra fatigue recovery resting at a lit hea
 const FIRE_FEAR_RELIEF = 0.03;    // the fire's comfort eases fear while resting by it
 const FIRE_GRIEF_RELIEF = 0.015;  // ...and grief, a little
 const WINTER_REST_NO_FIRE = 0.6;  // winter rest is restless (×0.6) without a fire to gather round
+
+// Tools & crafting. Tools are fashioned from wood at the camp workshop (the
+// shelter), wear with use, and break when worn out. An axe makes felling
+// timber far quicker; a spear makes the hunt surer.
+const CRAFT_WOOD_COST = 0.5;        // wood consumed to fashion one tool
+const CRAFT_BASE_QUALITY = 0.6;     // a green builder's tool starts rough…
+const CRAFT_SKILL_QUALITY = 0.4;    // …a master's near-pristine (0.6 + 0.4×building)
+const AXE_CHOP_BONUS = 1.7;         // an axe makes chopping far more productive
+const SPEAR_HUNT_BONUS = 1.4;       // a spear lifts hunting success
+const AXE_WEAR_PER_CHOP = 0.012;    // an axe endures many chops before it dulls
+const SPEAR_WEAR_PER_HUNT = 0.02;   // a spear wears faster in the hunt
+const CRAFT_FATIGUE = 0.03;         // shaping a tool is patient work
+const HUNTER_SPEAR_SKILL = 0.4;     // only practised hunters bother knapping a spear
 
 // Survival drives outrank social/emotional ones once they cross this urgency.
 const SURVIVAL_DRIVES: Array<keyof Drives> = ['hunger', 'fatigue', 'fear'];
@@ -771,6 +784,43 @@ function actionTendFire(agent: Agent, state: WorldState): TickOutcome {
   return makeOutcome(agent, { type: OutcomeType.TendedFire, success: true, amountGained: fuelGain });
 }
 
+// ============================================================
+// TOOLS — crafting and wear
+// ============================================================
+
+// A usable (un-broken) tool of the given kind the agent is carrying, if any.
+function findTool(agent: Agent, type: ItemType): Item | undefined {
+  return getInventory(agent).items.find((it) => it.type === type && it.condition > 0);
+}
+
+// Using a tool wears it; a tool worn to nothing is discarded.
+function wearTool(agent: Agent, type: ItemType, amount: number): void {
+  const inv = getInventory(agent);
+  const tool = inv.items.find((it) => it.type === type && it.condition > 0);
+  if (tool === undefined) return;
+  tool.condition = Math.max(0, tool.condition - amount);
+  if (tool.condition <= 0) inv.items = inv.items.filter((it) => it !== tool);
+}
+
+// Fashion a tool from carried wood at the camp workshop. Quality (starting
+// condition) scales with the building skill. Steps to camp if not yet there.
+function actionCraft(agent: Agent, state: WorldState, type: ItemType): TickOutcome {
+  const camp = campTileOf(agent);
+  if (manhattanDistance(agent.position.x, agent.position.y, camp.x, camp.y) > 1) {
+    stepAgentToward(agent, camp.x, camp.y, state);
+    return makeOutcome(agent, { type: OutcomeType.Crafted, success: false, partial: true });
+  }
+  const inv = getInventory(agent);
+  if (inv.wood < CRAFT_WOOD_COST) {
+    return makeOutcome(agent, { type: OutcomeType.Crafted, success: false, partial: false });
+  }
+  inv.wood -= CRAFT_WOOD_COST;
+  const condition = clamp01(CRAFT_BASE_QUALITY + agent.skills.building * CRAFT_SKILL_QUALITY);
+  inv.items.push({ id: `${agent.id}-${type}-${state.tick}`, type, condition });
+  agent.drives.fatigue = clamp01(agent.drives.fatigue + CRAFT_FATIGUE);
+  return makeOutcome(agent, { type: OutcomeType.Crafted, success: true });
+}
+
 function actionFlee(agent: Agent, state: WorldState): TickOutcome {
   const threat = findThreatLocation(agent, state);
 
@@ -1284,18 +1334,22 @@ function actionHunt(agent: Agent, state: WorldState): TickOutcome {
   const coHunters = tile?.occupants.length ?? 1;
   const crowdingPenalty = 1 / (1 + HUNT_CROWDING_K * Math.max(0, coHunters - 1));
 
-  // Success scales with how much game is actually present.
+  // Success scales with how much game is actually present. A spear lifts it.
   const seasonMod = SEASON_HUNT_MODIFIERS[state.season] ?? 1.0;
   const gameFactor = clamp01(localGame);
+  const spear = findTool(agent, ItemType.Spear);
+  const spearMult = spear !== undefined ? SPEAR_HUNT_BONUS : 1;
   const successChance =
     (HUNT_SUCCESS_BASE + agent.skills.hunting * HUNT_SKILL_BONUS) *
     seasonMod *
     gameFactor *
-    crowdingPenalty;
+    crowdingPenalty *
+    spearMult;
   const fatigued = fatigueModifier(agent.drives.fatigue);
   const success = Math.random() < successChance * fatigued * illnessSkillMultiplier(agent);
 
   agent.drives.fatigue = clamp01(agent.drives.fatigue + HUNT_COST_FATIGUE);
+  if (spear !== undefined) wearTool(agent, ItemType.Spear, SPEAR_WEAR_PER_HUNT); // the hunt wears the spear
 
   if (success) {
     // A kill removes animals from the local population; the tile is marked dirty
@@ -1396,8 +1450,10 @@ function actionChopWood(agent: Agent, state: WorldState, target: WorldTile): Tic
   const woodHere = tile?.resources.wood?.current ?? 0;
 
   if (tile !== undefined && woodHere >= WOOD_TILE_MIN && inv.wood < WOOD_CARRY_CAP) {
+    const axe = findTool(agent, ItemType.Axe);
+    const toolMult = axe !== undefined ? AXE_CHOP_BONUS : 1;
     const taken = Math.min(
-      WOOD_CHOP_BASE * (0.5 + agent.skills.building * WOOD_CHOP_SKILL_BONUS) * illnessSkillMultiplier(agent),
+      WOOD_CHOP_BASE * (0.5 + agent.skills.building * WOOD_CHOP_SKILL_BONUS) * illnessSkillMultiplier(agent) * toolMult,
       woodHere,
       WOOD_CARRY_CAP - inv.wood,
     );
@@ -1405,6 +1461,7 @@ function actionChopWood(agent: Agent, state: WorldState, target: WorldTile): Tic
     markTileDirty(state.tiles, tile.x, tile.y); // a felled stand now regrows
     inv.wood = Math.min(WOOD_CARRY_CAP, inv.wood + taken);
     agent.drives.fatigue = clamp01(agent.drives.fatigue + WOOD_CHOP_FATIGUE);
+    if (axe !== undefined) wearTool(agent, ItemType.Axe, AXE_WEAR_PER_CHOP);
     markDiscovered(agent, tile.x, tile.y);
     return makeOutcome(agent, { type: OutcomeType.ChoppedWood, success: true, amountGained: taken });
   }
@@ -1507,9 +1564,20 @@ function tryCampWork(agent: Agent, state: WorldState): TickOutcome | null {
   const inv = getInventory(agent);
 
   if (hut !== null && hut.type === StructureType.Shelter && hut.progress >= 1) {
-    // Hut's up — now keep the hearth fed once it burns low.
-    if (hut.fireFuel >= FIRE_LOW_THRESHOLD) return null; // fire's well stocked
-    if (inv.wood > 0) return actionTendFire(agent, state);
+    // Hut's up. Upkeep priority: feed the hearth, then craft the tools the camp
+    // still lacks (an axe for everyone; a spear for the hunters).
+    const fireLow = hut.fireFuel < FIRE_LOW_THRESHOLD;
+    const needAxe = findTool(agent, ItemType.Axe) === undefined;
+    const needSpear =
+      agent.skills.hunting >= HUNTER_SPEAR_SKILL && findTool(agent, ItemType.Spear) === undefined;
+    if (!fireLow && !needAxe && !needSpear) return null; // settled and well-equipped
+
+    if (fireLow) {
+      if (inv.wood > 0) return actionTendFire(agent, state);
+    } else if (inv.wood >= CRAFT_WOOD_COST) {
+      return actionCraft(agent, state, needAxe ? ItemType.Axe : ItemType.Spear);
+    }
+    // Need more wood for the fire or the workbench — go fell some.
     const stand = findBestWoodTile(state, agent.position.x, agent.position.y, WOOD_SEARCH_RADIUS + 4);
     return stand !== undefined ? actionChopWood(agent, state, stand) : null;
   }
@@ -1569,6 +1637,11 @@ function describeOutcome(outcome: TickOutcome, agent: Agent): string {
       if (outcome.success) return 'Tending the fire';
       if (outcome.partial) return 'Carrying wood to the hearth';
       return 'Stoking the cold hearth';
+
+    case OutcomeType.Crafted:
+      if (outcome.success) return 'Crafting a tool';
+      if (outcome.partial) return 'Heading to the workbench';
+      return 'Short of wood to craft';
 
     case OutcomeType.Wandered:
       return agent.drives.grief > 0.6 ? 'Moving without direction' : 'Wandering';

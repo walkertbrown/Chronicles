@@ -143,6 +143,10 @@ function buildStateSnapshot(state: WorldState): {
       conduitId: agent.conduitId,
       conduitBondType: agent.conduitBondType,
       currentAction: agent.currentAction,
+      inventory: {
+        wood: agent.inventory?.wood ?? 0,
+        tools: (agent.inventory?.items ?? []).map((it) => it.type),
+      },
     })),
     conduits: state.conduits
       .filter((c): c is typeof c & { bondedAgentId: string; bondType: 'light' | 'dark' } =>

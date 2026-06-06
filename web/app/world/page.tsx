@@ -727,6 +727,17 @@ function LivingDetail({
           {agent.currentAction}
         </p>
       )}
+      {agent.inventory && (agent.inventory.wood > 0.01 || agent.inventory.tools.length > 0) && (
+        <p style={{ fontFamily: f.serif, fontSize: 14, color: c.textFaint, margin: '0 0 12px' }}>
+          Carrying:{' '}
+          {[
+            agent.inventory.wood > 0.01 ? `${agent.inventory.wood.toFixed(2)} wood` : null,
+            ...agent.inventory.tools,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
+      )}
       {agent.illnessState !== null && agent.illnessState.sick && (
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
           <span style={{ width: 7, height: 7, background: c.accent2, display: 'inline-block' }} />
