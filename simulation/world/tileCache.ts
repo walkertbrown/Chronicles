@@ -407,6 +407,18 @@ function backfillTileStructure(tile: WorldTile): void {
 // Pre-populates the starting zone so agents have tiles on day 1
 // ============================================================
 
+// The source sits beyond the ruins — at the far (northern) edge of the ruin
+// cluster, against the mountains, the true end of the ancient-density gradient.
+// Deterministic per seed (reuses the same feature RNG), so worldgen and any
+// later backfill agree on where it is.
+export function computeSourcePosition(seed: number): { x: number; y: number } {
+  const { ruinCenter } = computeWorldFeatures(seed);
+  return {
+    x: ruinCenter.cx,
+    y: Math.max(4, ruinCenter.cy - ruinCenter.radius - 1),
+  };
+}
+
 export function createTileCache(seed: number): TileCacheImpl {
   const cache = new TileCacheImpl(seed);
 

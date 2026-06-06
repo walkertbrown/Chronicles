@@ -8,6 +8,7 @@ import type {
 } from '@shared/types.js';
 import { EventType } from '@shared/types.js';
 import { getChroniclePages } from './firebase.js';
+import { sourceStateLabel } from './source/source.js';
 
 const PORT = 3001;
 const VESSEL_ZONE_ROW = 30;
@@ -72,6 +73,11 @@ function buildStateSnapshot(state: WorldState): {
     progress: number;
     fireFuel: number;
   }>;
+  source: {
+    position: { x: number; y: number };
+    control: number;
+    state: 'dormant' | 'light' | 'dark';
+  };
   latestSummary: { worldNow: string } | null;
 } {
   const tiles: Array<{
@@ -160,6 +166,11 @@ function buildStateSnapshot(state: WorldState): {
       })),
     tiles,
     structures,
+    source: {
+      position: { ...state.source.position },
+      control: state.source.control,
+      state: sourceStateLabel(state.source.control),
+    },
     latestSummary: state.latestSummary !== null ? { worldNow: state.latestSummary.worldNow } : null,
   };
 }

@@ -79,6 +79,7 @@ export async function writeCheckpoint(state: WorldState): Promise<void> {
       })),
       vessel: state.vessel,
       conduits: state.conduits,
+      source: state.source,
       tiles: state.tiles.serialize(),
       chroniclePages: state.chroniclePages,
       latestSummary: state.latestSummary,

@@ -398,6 +398,31 @@ export default function WorldPage() {
                 );
               })()}
 
+            {/* the source — only revealed once it awakens; dormant it hides among the ruins */}
+            {worldSnapshot?.source != null && worldSnapshot.source.state !== 'dormant' &&
+              (() => {
+                const src = worldSnapshot.source;
+                const [sx, sy] = tileToSvg(src.position.x, src.position.y);
+                const dark = src.state === 'dark';
+                const fill = dark ? c.conduitDark : c.conduitLight;
+                const stroke = dark ? c.conduitDarkStroke : c.conduitLightStroke;
+                const r = 7 * mk;
+                return (
+                  <g key="source">
+                    <circle cx={sx} cy={sy} fill="none" stroke={fill} strokeWidth={1.4 * mk} opacity={0.5}>
+                      <animate attributeName="r" values={`${9 * mk};${16 * mk};${9 * mk}`} dur={dark ? '3s' : '4.2s'} repeatCount="indefinite" />
+                      <animate attributeName="opacity" values="0.55;0.08;0.55" dur={dark ? '3s' : '4.2s'} repeatCount="indefinite" />
+                    </circle>
+                    <polygon
+                      points={`${sx},${sy - r} ${sx + r * 0.8},${sy} ${sx},${sy + r} ${sx - r * 0.8},${sy}`}
+                      fill={fill}
+                      stroke={stroke}
+                      strokeWidth={1.6 * mk}
+                    />
+                  </g>
+                );
+              })()}
+
             {/* vessel */}
             {worldSnapshot !== null &&
               (() => {

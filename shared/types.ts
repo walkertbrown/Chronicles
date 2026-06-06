@@ -70,6 +70,8 @@ export enum EventType {
   ConduitBondLight = 'conduit_bond_light',    // Light bond formed — major narrative event
   ConduitBondDark = 'conduit_bond_dark',      // Dark bond formed — major narrative event, shifted register
   ConduitBondBroken = 'conduit_bond_broken',  // Bond broken by agent death
+  SourceAwakened = 'source_awakened',         // The source opened for the first time (light or dark) — climactic
+  SourceShifted = 'source_shifted',           // Control of the source flipped between light and dark
 }
 
 // ============================================================
@@ -439,6 +441,18 @@ export interface TileCache {
 // Top-level container — saved to Firestore on checkpoint
 // ============================================================
 
+// THE SOURCE
+// The device the ascended Unbound built, beyond the ruins. A single fixed
+// location, disguised as ordinary ruin until it opens. `control` is a needle:
+// dragged toward +1 by light-bonded souls present near it (opens to the Unbound —
+// a flourishing that breeds its own shadow) and toward -1 by dark-bonded souls
+// (opens to the old gods the founders fled — tyranny spreads). 0 = dormant. The
+// contest never settles; it is the world's central conflict engine.
+export interface Source {
+  position: { x: number; y: number }
+  control: number   // -1 (old gods / dark) … 0 (dormant) … +1 (Unbound / light)
+}
+
 export interface WorldState {
   worldId: string
   seed: number              // Used to regenerate deterministic map
@@ -450,6 +464,7 @@ export interface WorldState {
   agents: Agent[]
   tiles: TileCache          // Sparse on-demand tile cache. See simulation/world/tileCache.ts
   conduits: ConduitBeing[]  // All 75 Conduit beings. Positions tracked always; frontend only receives bonded ones.
+  source: Source            // The contested device beyond the ruins. See Source above.
   vessel: VesselState
   eventLog: SimEvent[]      // Last 500 events
   chroniclePages: ChronicleEntry[]   // all generated chronicle pages, newest last

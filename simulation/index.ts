@@ -4,6 +4,7 @@
 import 'dotenv/config';
 import seedrandom from 'seedrandom';
 import type { WorldState } from '@shared/types.js';
+import { computeSourcePosition } from './world/tileCache.js';
 import { createWorldState, tick } from './tick.js';
 import { generateChronicle, shouldGenerateChronicle, ensurePrologueSeeded } from './chronicle/generator.js';
 import { generateSummary, shouldGenerateSummary } from './summary/generator.js';
@@ -85,6 +86,12 @@ async function main(): Promise<void> {
     // world was generated before that — draw a handful of Conduits down to the
     // settlement's edge so the luminous creatures are present from the start.
     nudgeConduitsToTreeline(state);
+    // The source was added after this world was generated — place it (dormant)
+    // at its deterministic spot beyond the ruins so the arc has somewhere to go.
+    const restoredSource = state.source as WorldState['source'] | undefined;
+    if (restoredSource === undefined) {
+      state.source = { position: computeSourcePosition(state.seed), control: 0 };
+    }
   }
   process.on('SIGINT', () => {
     console.log('\nSimulation interrupted. Writing final checkpoint...');
