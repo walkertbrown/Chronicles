@@ -2,7 +2,7 @@
 // Determines and executes each agent's action per tick based on dominant drive.
 
 import type { Agent, Drives, Inventory, Structure, WorldState, WorldTile } from '@shared/types.js';
-import { BondType, EventType, StructureType, Terrain } from '@shared/types.js';
+import { BondType, EventType, Season, StructureType, Terrain } from '@shared/types.js';
 import { fatigueModifier } from './drives.js';
 import { isSick, illnessSeverity, illnessSkillMultiplier, checkWoundInfection } from './illness.js';
 import { OutcomeType, type TickOutcome } from './outcomes.js';
@@ -105,6 +105,16 @@ const BUILD_FATIGUE = 0.03;           // raising a frame is real labour
 const BUILDER_MIN_SOCIABILITY = 0.25; // pure loners don't invest in a shared camp
 const BUILD_SOCIAL_RELIEF = 0.02;     // working the camp alongside kin eases the social pull
 const SHELTER_REST_BONUS = 1.6;       // fatigue recovers faster resting in a finished hut
+
+// Hearth & fire. A finished shelter holds a fire the band feeds with wood. A lit
+// hearth warms rest, calms fear/grief, and — most of all — keeps winter at bay.
+const FIRE_LOW_THRESHOLD = 0.35;  // below this the band tops the fire back up
+const FIRE_TEND_WOOD = 0.3;       // wood burned per tending
+const FIRE_SKILL_FUEL_BONUS = 0.6;// a skilled fire-tender coaxes more warmth from each log
+const FIRE_REST_BONUS = 1.3;      // extra fatigue recovery resting at a lit hearth (stacks w/ shelter)
+const FIRE_FEAR_RELIEF = 0.03;    // the fire's comfort eases fear while resting by it
+const FIRE_GRIEF_RELIEF = 0.015;  // ...and grief, a little
+const WINTER_REST_NO_FIRE = 0.6;  // winter rest is restless (×0.6) without a fire to gather round
 
 // Survival drives outrank social/emotional ones once they cross this urgency.
 const SURVIVAL_DRIVES: Array<keyof Drives> = ['hunger', 'fatigue', 'fear'];
@@ -704,12 +714,61 @@ function actionDrinkWater(agent: Agent, state: WorldState): TickOutcome {
 }
 
 function actionRest(agent: Agent, state: WorldState): TickOutcome {
-  // A finished shelter at the resting spot lets the band recover faster.
-  const tile = getTile(state.tiles, agent.position.x, agent.position.y);
-  const sheltered =
-    tile?.structure?.type === StructureType.Shelter && tile.structure.progress >= 1;
-  restoreFatigue(agent, sheltered ? SHELTER_REST_BONUS : 1);
+  // A finished shelter — and a fire within it — let the band recover faster.
+  // Warmth reaches the hut tile and the ground right around it, so resting by
+  // the hearth counts, not only standing on it.
+  const here = getTile(state.tiles, agent.position.x, agent.position.y);
+  const around = getAdjacentTiles(state.tiles, agent.position.x, agent.position.y);
+  let sheltered = false;
+  let fireLit = false;
+  for (const t of here !== undefined ? [here, ...around] : around) {
+    const s = t.structure;
+    if (s !== null && s.type === StructureType.Shelter && s.progress >= 1) {
+      sheltered = true;
+      if (s.fireFuel > 0) fireLit = true;
+    }
+  }
+
+  let mult = 1;
+  if (sheltered) mult *= SHELTER_REST_BONUS;
+  if (fireLit) mult *= FIRE_REST_BONUS;
+  // Winter nights are restless in the cold; a hearth restores full warmth.
+  if (state.season === Season.Winter && !fireLit) mult *= WINTER_REST_NO_FIRE;
+  restoreFatigue(agent, mult);
+
+  // The comfort of the fire eases fear and grief while resting beside it.
+  if (fireLit) {
+    agent.drives.fear = clamp01(agent.drives.fear - FIRE_FEAR_RELIEF);
+    agent.drives.grief = clamp01(agent.drives.grief - FIRE_GRIEF_RELIEF);
+  }
   return makeOutcome(agent, { type: OutcomeType.Rested, success: true });
+}
+
+// Feed (or first light) the hearth at the camp shelter, burning carried wood
+// into fuel. A skilled fire-tender wrings more warmth from each log. Steps to
+// camp if not yet there.
+function actionTendFire(agent: Agent, state: WorldState): TickOutcome {
+  const camp = campTileOf(agent);
+  if (manhattanDistance(agent.position.x, agent.position.y, camp.x, camp.y) > 1) {
+    stepAgentToward(agent, camp.x, camp.y, state);
+    return makeOutcome(agent, { type: OutcomeType.TendedFire, success: false, partial: true });
+  }
+  const tile = getTile(state.tiles, camp.x, camp.y);
+  const hut = tile?.structure ?? null;
+  if (hut === null || hut.type !== StructureType.Shelter || hut.progress < 1) {
+    return makeOutcome(agent, { type: OutcomeType.TendedFire, success: false, partial: false });
+  }
+  const inv = getInventory(agent);
+  if (inv.wood <= 0) {
+    return makeOutcome(agent, { type: OutcomeType.TendedFire, success: false, partial: false });
+  }
+  const burn = Math.min(inv.wood, FIRE_TEND_WOOD);
+  inv.wood -= burn;
+  const fuelGain = burn * (1 + agent.skills.fire * FIRE_SKILL_FUEL_BONUS);
+  hut.fireFuel = clamp01(hut.fireFuel + fuelGain);
+  agent.drives.fatigue = clamp01(agent.drives.fatigue + BUILD_FATIGUE * 0.5);
+  markTileDirty(state.tiles, camp.x, camp.y);
+  return makeOutcome(agent, { type: OutcomeType.TendedFire, success: true, amountGained: fuelGain });
 }
 
 function actionFlee(agent: Agent, state: WorldState): TickOutcome {
@@ -1401,7 +1460,7 @@ function actionBuild(agent: Agent, state: WorldState): TickOutcome {
 
   let hut = tile.structure;
   if (hut === null) {
-    hut = { type: StructureType.Shelter, progress: 0, woodInvested: 0, builderIds: [] };
+    hut = { type: StructureType.Shelter, progress: 0, woodInvested: 0, builderIds: [], fireFuel: 0 };
     tile.structure = hut;
   } else if (hut.type !== StructureType.Shelter || hut.progress >= 1) {
     return makeOutcome(agent, { type: OutcomeType.Built, success: false, partial: false });
@@ -1445,13 +1504,20 @@ function tryCampWork(agent: Agent, state: WorldState): TickOutcome | null {
   }
 
   const hut = campTile.structure;
-  if (hut !== null && hut.type === StructureType.Shelter && hut.progress >= 1) return null; // already sheltered
+  const inv = getInventory(agent);
 
-  // Carrying timber → take it home and build. Empty-handed → go fell some.
-  if (getInventory(agent).wood > 0) return actionBuild(agent, state);
+  if (hut !== null && hut.type === StructureType.Shelter && hut.progress >= 1) {
+    // Hut's up — now keep the hearth fed once it burns low.
+    if (hut.fireFuel >= FIRE_LOW_THRESHOLD) return null; // fire's well stocked
+    if (inv.wood > 0) return actionTendFire(agent, state);
+    const stand = findBestWoodTile(state, agent.position.x, agent.position.y, WOOD_SEARCH_RADIUS + 4);
+    return stand !== undefined ? actionChopWood(agent, state, stand) : null;
+  }
+
+  // No finished hut yet — raise it. Carrying timber → build; empty-handed → fell.
+  if (inv.wood > 0) return actionBuild(agent, state);
   const stand = findBestWoodTile(state, agent.position.x, agent.position.y, WOOD_SEARCH_RADIUS + 4);
-  if (stand !== undefined) return actionChopWood(agent, state, stand);
-  return null;
+  return stand !== undefined ? actionChopWood(agent, state, stand) : null;
 }
 
 // ============================================================
@@ -1498,6 +1564,11 @@ function describeOutcome(outcome: TickOutcome, agent: Agent): string {
       if (outcome.success) return 'Raising a shelter';
       if (outcome.partial) return 'Hauling timber to camp';
       return 'Sizing up the camp';
+
+    case OutcomeType.TendedFire:
+      if (outcome.success) return 'Tending the fire';
+      if (outcome.partial) return 'Carrying wood to the hearth';
+      return 'Stoking the cold hearth';
 
     case OutcomeType.Wandered:
       return agent.drives.grief > 0.6 ? 'Moving without direction' : 'Wandering';

@@ -252,6 +252,11 @@ export function applyTraitOutcome(agent: Agent, outcome: TickOutcome): void {
       if (outcome.success) applySkillDelta(agent, outcome, 'building', MEDIUM);
       break;
 
+    case OutcomeType.TendedFire:
+      // Coaxing and feeding the hearth hones the long-dormant fire skill.
+      if (outcome.success) applySkillDelta(agent, outcome, 'fire', SMALL);
+      break;
+
     case OutcomeType.Wandered:
       applyTraitDelta(agent, outcome, 'curiosity', MICRO);
       break;

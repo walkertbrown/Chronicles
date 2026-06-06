@@ -14,6 +14,7 @@ export enum OutcomeType {
   AteSomething = 'ate_something',  // Alias for consumed food from vessel stores
   ChoppedWood = 'chopped_wood',    // Agent chopped timber from a forest tile (or moved toward one)
   Built = 'built',                 // Agent worked on raising a shelter at the camp
+  TendedFire = 'tended_fire',      // Agent fed/lit the hearth at the camp shelter
 
   // Movement
   Wandered = 'wandered',           // Agent moved without a specific goal

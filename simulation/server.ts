@@ -70,6 +70,7 @@ function buildStateSnapshot(state: WorldState): {
     position: { x: number; y: number };
     type: string;
     progress: number;
+    fireFuel: number;
   }>;
   latestSummary: { worldNow: string } | null;
 } {
@@ -86,6 +87,7 @@ function buildStateSnapshot(state: WorldState): {
     position: { x: number; y: number };
     type: string;
     progress: number;
+    fireFuel: number;
   }> = [];
 
   for (const tile of state.tiles.getDirtyTiles().values()) {
@@ -94,6 +96,7 @@ function buildStateSnapshot(state: WorldState): {
         position: { x: tile.x, y: tile.y },
         type: tile.structure.type,
         progress: tile.structure.progress,
+        fireFuel: tile.structure.fireFuel,
       });
     }
     if (tile.occupants.length === 0 && tile.conduitIds.length === 0) continue;

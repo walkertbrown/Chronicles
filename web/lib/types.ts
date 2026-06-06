@@ -108,6 +108,7 @@ export interface StructureSnapshot {
   position: { x: number; y: number };
   type: string;       // 'shelter', …
   progress: number;   // 0–1; < 1 = still under construction
+  fireFuel?: number;  // 0–1; > 0 = a hearth is burning (optional until sim redeploy)
 }
 
 export interface ChronicleThread {

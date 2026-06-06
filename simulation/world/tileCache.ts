@@ -392,7 +392,14 @@ function backfillTileWood(tile: WorldTile, seed: number): void {
 // so build/anchor code can read tile.structure without hitting undefined.
 function backfillTileStructure(tile: WorldTile): void {
   const t = tile as { structure?: Structure | null };
-  if (t.structure === undefined) t.structure = null;
+  if (t.structure === undefined) {
+    t.structure = null;
+    return;
+  }
+  // Structures persisted before hearths existed lack fireFuel; default it cold.
+  if (t.structure !== null && (t.structure as { fireFuel?: number }).fireFuel === undefined) {
+    t.structure.fireFuel = 0;
+  }
 }
 
 // ============================================================

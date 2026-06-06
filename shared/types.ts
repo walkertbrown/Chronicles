@@ -266,6 +266,7 @@ export interface Structure {
   progress: number       // 0–1 construction progress
   woodInvested: number   // total timber deposited (0–1 scale; sums carry-loads)
   builderIds: string[]   // agents who contributed — for chronicle/significance
+  fireFuel: number       // 0–1 hearth fuel; >0 = a fire burns. Decays each tick; fed with wood.
 }
 
 export interface WorldTile {
