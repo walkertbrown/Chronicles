@@ -14,6 +14,11 @@ const SEED = 42;
 const RUN_MODE = process.env['RUN_MODE'] ?? 'dev';
 const TARGET_TICKS = RUN_MODE === 'production' ? Infinity : 2000;
 const TICK_INTERVAL_MS = RUN_MODE === 'production' ? 450000 : 200;
+// A production tick is ~7.5 min, so checkpointing every 50 ticks meant persisting
+// only every ~6 hours — longer than the deploy container lives, so progress (and
+// the landing) never saved and the world replayed the same day forever. Ticks are
+// far apart in production, so checkpoint every one; keep the cheap cadence in dev.
+const CHECKPOINT_TICK_INTERVAL = RUN_MODE === 'production' ? 1 : 50;
 
 async function main(): Promise<void> {
   const saved = await loadCheckpoint(WORLD_ID);
@@ -50,16 +55,28 @@ async function main(): Promise<void> {
   for (let i = 0; i < TARGET_TICKS; i++) {
     const tickResult = tick(state, rng);
     void writeAgentPositions(state).catch(() => {});
-    if (state.tick % 50 === 0) void writeCheckpoint(state).catch(() => {});
+    if (state.tick % CHECKPOINT_TICK_INTERVAL === 0) void writeCheckpoint(state).catch(() => {});
 
     const justLanded = tickResult.landingOccurred;
-    if (justLanded || shouldGenerateChronicle(state, RUN_MODE)) {
+    // Landing is the single most important state transition. Persist it immediately
+    // so a restart resumes already-beached instead of re-landing and re-chronicling
+    // the same day — the exact loop that pinned the world to day 5.
+    if (justLanded) void writeCheckpoint(state).catch(() => {});
+    // At most one chronicle per simulated day. Without this guard, any time a
+    // checkpoint restore replays an already-chronicled tick (e.g. a crash loop
+    // resuming before tick 240), the day's chronicle is regenerated again.
+    const dayNotYetChronicled = state.day > state.lastChronicleDay;
+    if (dayNotYetChronicled && (justLanded || shouldGenerateChronicle(state, RUN_MODE))) {
       const apiKey = process.env['ANTHROPIC_API_KEY'] ?? '';
       if (apiKey) {
-        // Run in background — do not block the tick loop
-        void generateChronicle(state, apiKey).catch((err: unknown) => {
-          console.error('Chronicle generation failed:', err);
-        });
+        // Run in background — do not block the tick loop. The generator advances
+        // state.lastChronicleDay on success; checkpoint immediately afterward so a
+        // crash before the next 50-tick checkpoint can't replay this day.
+        void generateChronicle(state, apiKey)
+          .then(() => writeCheckpoint(state))
+          .catch((err: unknown) => {
+            console.error('Chronicle generation failed:', err);
+          });
       }
     }
 

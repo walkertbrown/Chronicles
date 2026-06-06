@@ -92,6 +92,7 @@ export function createWorldState(seed: number, worldId: string): WorldState {
     eventLog: [],
     chroniclePages: [],
     lastCheckpoint: new Date().toISOString(),
+    lastChronicleDay: -1,
     lastChronicleGeneratedAt: null,
     lastSummaryGeneratedAt: null,
     latestSummary: null,

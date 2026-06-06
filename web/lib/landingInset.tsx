@@ -10,7 +10,8 @@
 // Terrain is drawn from the baked tileToTerrain grid (no server data needed),
 // so it stays crisp at this zoom instead of enlarging the low-res map raster.
 
-import { useMemo } from 'react';
+import { useMemo, useRef, useState, useEffect } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import type { AgentSnapshot, WorldSnapshot } from './types';
 import { tileToTerrain } from './tileCoords';
 import { oracle } from './oracle';
@@ -79,6 +80,55 @@ export function LandingInset({
   selectedId: string | null;
   onSelect: (agent: AgentSnapshot) => void;
 }) {
+  // Draggable panel — grab the header to slide the inset anywhere over the map
+  // so it never sits on top of something you want to watch. A null position
+  // means "use the default bottom-left anchor"; dragging pins explicit px.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; bottom: number } | null>(null);
+  const dragRef = useRef<{ startX: number; startY: number; left: number; bottom: number } | null>(null);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const d = dragRef.current;
+      const el = containerRef.current;
+      if (d === null || el === null) return;
+      const parent = el.offsetParent as HTMLElement | null;
+      const pw = parent?.clientWidth ?? window.innerWidth;
+      const ph = parent?.clientHeight ?? window.innerHeight;
+      // Clamp to the map area so the panel can't be dragged out of reach.
+      const left = clamp(d.left + (e.clientX - d.startX), 0, pw - el.offsetWidth);
+      const bottom = clamp(d.bottom - (e.clientY - d.startY), 0, ph - el.offsetHeight);
+      setPos({ left, bottom });
+    };
+    const onUp = () => {
+      dragRef.current = null;
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
+
+  const onHeaderDown = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const el = containerRef.current;
+    if (el === null) return;
+    const parent = el.offsetParent as HTMLElement | null;
+    const prect = parent?.getBoundingClientRect();
+    const erect = el.getBoundingClientRect();
+    // Seed the drag from the panel's live position so the first move is smooth
+    // whether or not it's been dragged before.
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      left: erect.left - (prect?.left ?? 0),
+      bottom: (prect?.bottom ?? window.innerHeight) - erect.bottom,
+    };
+    e.preventDefault(); // don't select the header text while dragging
+  };
+
   // The landing site only exists once the vessel beaches; before that nobody
   // is ashore and there is nothing to frame. Window bounds are shared with the
   // world-map locator box via landingWindowTiles().
@@ -169,10 +219,11 @@ export function LandingInset({
 
   return (
     <div
+      ref={containerRef}
       style={{
         position: 'absolute',
-        left: 10,
-        bottom: 10,
+        left: pos?.left ?? 10,
+        bottom: pos?.bottom ?? 10,
         zIndex: 4,
         width: 'clamp(150px, 21vw, 240px)',
         background: c.frame,
@@ -184,11 +235,15 @@ export function LandingInset({
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div
+        onMouseDown={onHeaderDown}
+        title="Drag to move"
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'baseline',
           padding: '1px 2px 5px',
+          cursor: 'grab',
+          userSelect: 'none',
         }}
       >
         <span

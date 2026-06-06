@@ -201,7 +201,10 @@ not yet made. End in motion — but end.`;
     };
 
     const generatedAt = new Date().toISOString();
-    const pageId = `day-${state.day}-${generatedAt}`;
+    // Deterministic, one-per-day id. A regenerated day (e.g. a checkpoint replay
+    // re-reaching this tick) overwrites the existing Firestore doc instead of
+    // creating a fresh timestamped duplicate.
+    const pageId = `day-${state.day}`;
     const order = nextChronicleOrder(state);
 
     const entry: ChronicleEntry & { id: string; order: number } = {
@@ -224,10 +227,14 @@ not yet made. End in motion — but end.`;
       order,
     };
 
+    // Upsert by id so a regenerated day replaces its prior page in memory (and in
+    // the checkpoint's chroniclePages array) instead of appending a duplicate.
+    state.chroniclePages = state.chroniclePages.filter((p) => p.id !== pageId);
     state.chroniclePages.push(entry);
     await writeChronicleDocument(state.worldId, entry);
 
     state.lastChronicleGeneratedAt = new Date().toISOString();
+    state.lastChronicleDay = state.day;
 
     return result;
   } catch (error) {
