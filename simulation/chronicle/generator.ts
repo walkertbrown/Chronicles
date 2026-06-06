@@ -9,7 +9,7 @@ import {
   isChronicleCollectionEmpty,
   writeChronicleDocument,
 } from '../firebase.js';
-import { packThreads } from './packager.js';
+import { packThreads, packCameos } from './packager.js';
 import { buildChroniclePrompt } from './prompt.js';
 
 // ============================================================
@@ -154,7 +154,7 @@ export async function generateChronicle(
   const previousPage =
     priorPages.length > 0 ? (priorPages[priorPages.length - 1]?.fullPage ?? null) : null;
 
-  const prompt = buildChroniclePrompt(packages, state.vessel.beached, previousPage);
+  const prompt = buildChroniclePrompt(packages, state.vessel.beached, previousPage, packCameos(state));
 
   try {
     await ensurePrologueSeeded(state);

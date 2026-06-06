@@ -62,6 +62,8 @@ export async function writeCheckpoint(state: WorldState): Promise<void> {
         skills: a.skills,
         significanceScore: a.significanceScore,
         chronicleThreadActive: a.chronicleThreadActive,
+        chronicleChallenge: a.chronicleChallenge,
+        chronicleFade: a.chronicleFade,
         illnessState: a.illnessState,
         lineage: a.lineage,
         foundingHistory: a.foundingHistory,

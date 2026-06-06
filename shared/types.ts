@@ -228,7 +228,14 @@ export interface Agent {
   currentAction: string | null              // plain-English description of this tick's action. null until first tick.
 
   significanceScore: number                 // Recalculated every tick
-  chronicleThreadActive: boolean
+  chronicleThreadActive: boolean            // a LEAD thread (full chronicle treatment)
+  // Contested-supersession state. A non-lead who out-ranks the weakest lead
+  // builds chronicleChallenge (0→1); while contending they appear as a cameo,
+  // and at 1.0 they take a lead slot. A lead they displace gets chronicleFade=1,
+  // which decays over time and earns them recurring cameos so the reader is
+  // eased away from them rather than abandoned. Both default 0.
+  chronicleChallenge: number                // 0–1 momentum toward seizing a lead slot
+  chronicleFade: number                     // 0–1 lingering presence of a superseded former lead
   lastChroniclePageMention: number | null   // Simulated day number
 
   // Last 20 significant events only — older events dropped

@@ -792,3 +792,55 @@ export function packThreads(state: WorldState): ThreadPackage[] {
       (orderIndex.get(b.primaryAgent.id) ?? Infinity),
   );
 }
+
+// ============================================================
+// CAMEOS — others featured briefly, without becoming full threads
+// ============================================================
+
+export interface Cameo {
+  name: string;
+  familyName: string;
+  reason: 'contender' | 'fading' | 'event';
+  note: string; // the moment or state worth a glimpse
+}
+
+const MAX_CAMEOS = 3;
+const CAMEO_CHALLENGE_MIN = 0.25; // a rising contender becomes visible once momentum passes this
+const CAMEO_EVENT_WEIGHT = 0.7;   // a non-lead in an event this notable earns a one-off cameo
+
+// Non-lead agents worth a brief appearance this page: someone a big moment just
+// happened to (event), a rising figure contesting a thread (contender), or a
+// superseded former lead still receding from view (fading). Keeps the two-thread
+// focus while ensuring the cast turns over and no one vanishes the instant they
+// lose their thread.
+export function packCameos(state: WorldState): Cameo[] {
+  const eventWindow =
+    state.lastChronicleGeneratedAt === null ? state.tick : Math.min(state.tick, TICKS_PER_DAY * 6);
+
+  const cameos: Cameo[] = [];
+  for (const agent of state.agents) {
+    if (!agent.alive || agent.chronicleThreadActive) continue;
+
+    const events = getRecentEventsForAgent(state, agent.id, eventWindow);
+    const top = events.reduce<SimEvent | undefined>(
+      (best, e) => (best === undefined || e.narrativeWeight > best.narrativeWeight ? e : best),
+      undefined,
+    );
+
+    let reason: Cameo['reason'] | null = null;
+    if (top !== undefined && top.narrativeWeight >= CAMEO_EVENT_WEIGHT) reason = 'event';
+    else if (agent.chronicleChallenge >= CAMEO_CHALLENGE_MIN) reason = 'contender';
+    else if (agent.chronicleFade > 0) reason = 'fading';
+    if (reason === null) continue;
+
+    const note =
+      reason === 'event' && top !== undefined
+        ? top.description
+        : (top?.description ?? agent.currentAction ?? 'present at the edges of the camp');
+    cameos.push({ name: agent.name, familyName: agent.familyName, reason, note });
+  }
+
+  const priority: Record<Cameo['reason'], number> = { event: 0, contender: 1, fading: 2 };
+  cameos.sort((a, b) => priority[a.reason] - priority[b.reason]);
+  return cameos.slice(0, MAX_CAMEOS);
+}

@@ -81,6 +81,10 @@ async function main(): Promise<void> {
       if (inventory === undefined) {
         agent.inventory = { wood: 0, items: [] };
       }
+      // Contested-supersession fields added after this checkpoint was written.
+      const a = agent as { chronicleChallenge?: number; chronicleFade?: number };
+      if (typeof a.chronicleChallenge !== 'number') agent.chronicleChallenge = 0;
+      if (typeof a.chronicleFade !== 'number') agent.chronicleFade = 0;
     }
     // The generator now seeds a few treeline watchers near the landing, but this
     // world was generated before that — draw a handful of Conduits down to the

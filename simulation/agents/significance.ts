@@ -35,6 +35,16 @@ const FAR_FROM_GROUP_BONUS = 0.2;
 const MAX_CHRONICLE_THREADS_SAMPLE = 2;
 // MAX_CHRONICLE_THREADS_FULL = 6 — for production
 
+// Contested supersession. A non-lead who out-ranks the weakest lead by
+// SUPERSEDE_MARGIN builds challenge momentum; sustaining the lead swaps them in,
+// while the incumbent reclaiming the edge bleeds it back off (the "back and
+// forth"). Responsive to start, earned to finish. A displaced lead doesn't
+// vanish — it gets chronicleFade=1, which decays and earns recurring cameos.
+const SUPERSEDE_MARGIN = 0.05;   // challenger must beat the weakest lead by this to gain momentum
+const CHALLENGE_GAIN = 0.06;     // momentum per tick while genuinely leading (~17 ticks to swap)
+const CHALLENGE_DECAY = 0.04;    // momentum bled off per tick when the lead reclaims the edge
+const FADE_DECAY = 0.05;         // a superseded lead's lingering presence fades (~20 ticks of cameos)
+
 const SICK_DEVIATION_WEIGHT = 0.3;
 
 const TRAIT_KEYS = [
@@ -201,32 +211,78 @@ function computeSignificanceScore(agent: Agent, state: WorldState): number {
 // CHRONICLE THREADS
 // ============================================================
 
-function countActiveChronicleThreads(state: WorldState): number {
-  return aliveAgents(state).filter((agent) => agent.chronicleThreadActive).length;
-}
-
 function updateChronicleThreads(state: WorldState): void {
-  // Close threads for dead agents
+  // Close threads for the dead.
   for (const agent of state.agents) {
     if (!agent.alive && agent.chronicleThreadActive) {
       agent.chronicleThreadActive = false;
     }
   }
 
-  // Always maintain MAX_CHRONICLE_THREADS_SAMPLE active threads
-  // pointing at the top agents by significance — no score threshold.
-  // The chronicle follows whoever is most interesting right now.
-  const activeCount = countActiveChronicleThreads(state);
-  if (activeCount >= MAX_CHRONICLE_THREADS_SAMPLE) return;
+  const alive = aliveAgents(state);
 
-  const needed = MAX_CHRONICLE_THREADS_SAMPLE - activeCount;
-  const candidates = aliveAgents(state)
-    .filter((agent) => !agent.chronicleThreadActive)
-    .sort((a, b) => b.significanceScore - a.significanceScore)
-    .slice(0, needed);
+  // 1. Fill empty lead slots (startup, or after a thread-holder dies) with the
+  //    top agents by significance — no threshold.
+  let leads = alive.filter((a) => a.chronicleThreadActive);
+  if (leads.length < MAX_CHRONICLE_THREADS_SAMPLE) {
+    const fillers = alive
+      .filter((a) => !a.chronicleThreadActive)
+      .sort((a, b) => b.significanceScore - a.significanceScore)
+      .slice(0, MAX_CHRONICLE_THREADS_SAMPLE - leads.length);
+    for (const agent of fillers) {
+      agent.chronicleThreadActive = true;
+      agent.chronicleChallenge = 0;
+      agent.chronicleFade = 0;
+    }
+    leads = alive.filter((a) => a.chronicleThreadActive);
+  }
 
-  for (const agent of candidates) {
-    agent.chronicleThreadActive = true;
+  // 2. Fade out superseded former leads — their lingering presence (recurring
+  //    cameos) decays so the reader is eased away, not abandoned.
+  for (const agent of alive) {
+    if (!agent.chronicleThreadActive && agent.chronicleFade > 0) {
+      agent.chronicleFade = Math.max(0, agent.chronicleFade - FADE_DECAY);
+    }
+  }
+
+  // 3. The contest — only with the slots full (otherwise step 1 just filled).
+  if (leads.length < MAX_CHRONICLE_THREADS_SAMPLE) return;
+
+  const weakestLead = leads.reduce((w, a) =>
+    a.significanceScore < w.significanceScore ? a : w,
+  );
+
+  let topChallenger: Agent | undefined;
+  for (const agent of alive) {
+    if (agent.chronicleThreadActive) continue;
+    if (topChallenger === undefined || agent.significanceScore > topChallenger.significanceScore) {
+      topChallenger = agent;
+    }
+  }
+  if (topChallenger === undefined) return;
+
+  // The leading challenger builds momentum; everyone else's bleeds off (one
+  // contest at a time, and the back-and-forth lives in this rise/fall).
+  for (const agent of alive) {
+    if (agent.chronicleThreadActive) continue;
+    if (
+      agent === topChallenger &&
+      topChallenger.significanceScore > weakestLead.significanceScore + SUPERSEDE_MARGIN
+    ) {
+      agent.chronicleChallenge = clamp01(agent.chronicleChallenge + CHALLENGE_GAIN);
+    } else if (agent.chronicleChallenge > 0) {
+      agent.chronicleChallenge = Math.max(0, agent.chronicleChallenge - CHALLENGE_DECAY);
+    }
+  }
+
+  // 4. Sustained lead → the swap becomes permanent. The displaced lead fades.
+  if (topChallenger.chronicleChallenge >= 1) {
+    weakestLead.chronicleThreadActive = false;
+    weakestLead.chronicleFade = 1;
+    weakestLead.chronicleChallenge = 0;
+    topChallenger.chronicleThreadActive = true;
+    topChallenger.chronicleChallenge = 0;
+    topChallenger.chronicleFade = 0;
   }
 }
 

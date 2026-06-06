@@ -220,6 +220,8 @@ function spawnChild(
     currentAction: null,
     significanceScore: 0,
     chronicleThreadActive: false,
+    chronicleChallenge: 0,
+    chronicleFade: 0,
     lastChroniclePageMention: null,
     recentEvents: [],
     starvationTick: null,
