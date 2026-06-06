@@ -8,7 +8,7 @@
 // conflict. Dormant and disguised until a bonded pilgrim reaches it, which the
 // simulation never forces.
 
-import type { SimEvent, WorldState } from '@shared/types.js';
+import type { Agent, SimEvent, WorldState } from '@shared/types.js';
 import { EventType } from '@shared/types.js';
 import { manhattanDistance } from '../world/tiles.js';
 
@@ -85,21 +85,23 @@ function makeSourceEvent(
   state: WorldState,
   kind: 'light' | 'dark',
   moment: 'awakened' | 'shifted',
+  who: Agent | undefined,
 ): SimEvent {
   const { x, y } = state.source.position;
   const type = moment === 'awakened' ? EventType.SourceAwakened : EventType.SourceShifted;
+  const name = who !== undefined ? `${who.name} ${who.familyName}` : undefined;
 
   let description: string;
   if (moment === 'awakened') {
     description =
       kind === 'light'
-        ? 'Far beyond the ruins, the old device woke. A warm light spilled from a doorway that had always looked like ruin — held open, for now, the way the Unbound left it.'
-        : 'Far beyond the ruins, something woke that should have stayed asleep. A cold breath came through a doorway in the old stone — the gods the people crossed the sea to escape, pressing at the threshold.';
+        ? `Far beyond the ruins, the old device woke${name !== undefined ? ` at ${name}'s coming` : ''}. A warm light spilled from a doorway that had always looked like ruin — held open, for now, the way the Unbound left it.`
+        : `Far beyond the ruins, something woke that should have stayed asleep. A cold breath came through a doorway in the old stone${name !== undefined ? `, and ${name} stood in it` : ''} — the gods the people crossed the sea to escape, pressing at the threshold.`;
   } else {
     description =
       kind === 'light'
-        ? 'The threshold beyond the ruins turned toward the light again; the cold drew back. For now.'
-        : 'The threshold beyond the ruins turned cold; something old and hungry pressed back through. For now.';
+        ? `The threshold beyond the ruins turned toward the light again${name !== undefined ? `, ${name} at its edge` : ''}; the cold drew back. For now.`
+        : `The threshold beyond the ruins turned cold${name !== undefined ? ` as ${name} reached it` : ''}; something old and hungry pressed back through. For now.`;
   }
 
   return {
@@ -107,11 +109,11 @@ function makeSourceEvent(
     tick: state.tick,
     day: state.day,
     type,
-    involvedAgents: [],
+    involvedAgents: who !== undefined ? [who.id] : [],
     location: { x, y },
     description,
     narrativeWeight: moment === 'awakened' ? 0.98 : 0.95,
-    threadRelevant: [],
+    threadRelevant: who !== undefined ? [who.familyName] : [],
   };
 }
 
@@ -128,12 +130,19 @@ export function tickSource(state: WorldState): SimEvent[] {
 
   let light = 0;
   let dark = 0;
+  let topLight: Agent | undefined;
+  let topDark: Agent | undefined;
   for (const agent of state.agents) {
     if (!agent.alive || agent.conduitBondType === null) continue;
     if (manhattanDistance(x, y, agent.position.x, agent.position.y) > PRESENCE_RADIUS) continue;
     const weight = 1 + agent.significanceScore; // stronger souls pull the needle harder
-    if (agent.conduitBondType === 'light') light += weight;
-    else dark += weight;
+    if (agent.conduitBondType === 'light') {
+      light += weight;
+      if (topLight === undefined || agent.significanceScore > topLight.significanceScore) topLight = agent;
+    } else {
+      dark += weight;
+      if (topDark === undefined || agent.significanceScore > topDark.significanceScore) topDark = agent;
+    }
   }
 
   const prev = src.control;
@@ -152,9 +161,11 @@ export function tickSource(state: WorldState): SimEvent[] {
   const isAwake = Math.abs(src.control) >= SOURCE_AWAKE_THRESHOLD;
 
   if (!wasAwake && isAwake) {
-    events.push(makeSourceEvent(state, src.control > 0 ? 'light' : 'dark', 'awakened'));
+    const kind = src.control > 0 ? 'light' : 'dark';
+    events.push(makeSourceEvent(state, kind, 'awakened', kind === 'light' ? topLight : topDark));
   } else if (wasAwake && isAwake && Math.sign(prev) !== Math.sign(src.control)) {
-    events.push(makeSourceEvent(state, src.control > 0 ? 'light' : 'dark', 'shifted'));
+    const kind = src.control > 0 ? 'light' : 'dark';
+    events.push(makeSourceEvent(state, kind, 'shifted', kind === 'light' ? topLight : topDark));
   }
 
   return events;
