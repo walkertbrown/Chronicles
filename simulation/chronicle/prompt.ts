@@ -2,7 +2,7 @@
 // Builds the prompt string sent to Claude. The register and constraints here
 // are the most important decision in the project.
 
-import type { ThreadPackage } from './packager.js';
+import type { Cameo, ThreadPackage } from './packager.js';
 
 // ============================================================
 // FORMATTING HELPERS
@@ -326,10 +326,33 @@ export function buildChroniclePrompt(
   packages: ThreadPackage[],
   hasLanded: boolean,
   previousPage?: string | null,
+  cameos: Cameo[] = [],
 ): string {
   if (packages.length === 0) {
     return 'No chronicle threads are active. Write nothing.';
   }
+
+  const cameoBlock =
+    cameos.length > 0
+      ? `
+
+---
+
+ALSO THIS PAGE — cameos, not threads. Each gets at most a short paragraph or a
+brief scene, woven into the page. Do NOT give a cameo its own thread header or a
+full section. They are glimpses; the two threads above remain the spine.
+${cameos
+  .map((c) => {
+    const lens =
+      c.reason === 'event'
+        ? 'something notable happened to them — witness the moment, then let the page move on'
+        : c.reason === 'contender'
+          ? "the chronicle's attention is beginning to turn toward this person — a glimpse of why"
+          : 'a former pillar of this chronicle, now receding — a brief check-in on where they are, present but no longer at the center';
+    return `- ${c.name} ${c.familyName} (${lens}): ${c.note}`;
+  })
+  .join('\n')}`
+      : '';
 
   const previousPageBlock =
     previousPage != null && previousPage.trim().length > 0
@@ -535,7 +558,7 @@ ${formatWorldHeader(packages)}
 
 ---
 
-${threadBlocks}`;
+${threadBlocks}${cameoBlock}`;
 }
 
 // ============================================================
