@@ -9,7 +9,7 @@ import { tileToSvg, SVG_W, SVG_H } from '../../lib/tileCoords';
 import { oracle, EngravedBar, Kicker, SectionHead, Seal, GiltRings, Segmented, Masthead, VotePanel } from '../../lib/oracle';
 import { useViewport } from '../../lib/useViewport';
 import { AtlasMobile, type AtlasMode } from '../../lib/atlasMobile';
-import { LandingInset, landingWindowTiles } from '../../lib/landingInset';
+import { LandingInset, landingWindowTiles, type InsetOffset } from '../../lib/landingInset';
 
 const c = oracle.c;
 const f = oracle.fonts;
@@ -52,6 +52,12 @@ function clientToSvg(svg: SVGSVGElement, clientX: number, clientY: number, vb: M
   const offY = (rect.height - vb.h * scale) / 2;
   return { x: vb.x + (clientX - rect.left - offX) / scale, y: vb.y + (clientY - rect.top - offY) / scale };
 }
+
+// SVG px per sim tile — derived from the canonical tileToSvg so dragging the
+// locator box converts mouse motion into tile motion at exactly the map's
+// scale. The mapping is linear, so two samples pin it precisely.
+const SVG_PER_TILE_X = (tileToSvg(1000, 0)[0] - tileToSvg(0, 0)[0]) / 1000;
+const SVG_PER_TILE_Y = (tileToSvg(0, 1000)[1] - tileToSvg(0, 0)[1]) / 1000;
 
 // ── reader intervention ──────────────────────────────────────────────────────
 // VOTE data + VotePanel live in lib/oracle.tsx (shared with the chronicle page).
@@ -120,6 +126,9 @@ export default function WorldPage() {
   const [selectedDeadAgent, setSelectedDeadAgent] = useState<DeadAgentSnapshot | null>(null);
   const [rosterTab, setRosterTab] = useState<'living' | 'dead'>('living');
   const [viewBox, setViewBox] = useState<MapViewBox>(INITIAL_VIEWBOX);
+  // How far the landing inset's window is panned off the landing site, in sim
+  // tiles. Drag the locator box on the map to follow agents who've wandered.
+  const [insetOffset, setInsetOffset] = useState<InsetOffset>({ dx: 0, dy: 0 });
   const [voteOpen, setVoteOpen] = useState(false);
   const [briefOpen, setBriefOpen] = useState(false);
 
@@ -139,6 +148,9 @@ export default function WorldPage() {
   const draggedRef = useRef(false);
   const viewBoxRef = useRef(viewBox);
   viewBoxRef.current = viewBox;
+  const insetOffsetRef = useRef(insetOffset);
+  insetOffsetRef.current = insetOffset;
+  const boxDragRef = useRef<{ startX: number; startY: number; offset: InsetOffset } | null>(null);
   const lastSelRef = useRef<string | null>(null);
   const animRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -236,6 +248,39 @@ export default function WorldPage() {
     panRef.current = null;
   };
 
+  // ── drag the locator box to pan the landing inset's window ──
+  // Grabbing the box claims the gesture (no map pan, no agent-select); the move
+  // listener lives on window so a drag that leaves the small box keeps tracking.
+  const onBoxDown = (e: ReactMouseEvent<SVGRectElement>) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    boxDragRef.current = { startX: e.clientX, startY: e.clientY, offset: insetOffsetRef.current };
+  };
+  useEffect(() => {
+    const move = (e: MouseEvent) => {
+      const d = boxDragRef.current;
+      const svg = mapSvgRef.current;
+      if (d === null || svg === null) return;
+      // Convert the client-space drag into SVG space (honouring the live zoom),
+      // then into sim tiles via the map's own scale.
+      const a = clientToSvg(svg, d.startX, d.startY, viewBoxRef.current);
+      const b = clientToSvg(svg, e.clientX, e.clientY, viewBoxRef.current);
+      setInsetOffset({
+        dx: d.offset.dx + (b.x - a.x) / SVG_PER_TILE_X,
+        dy: d.offset.dy + (b.y - a.y) / SVG_PER_TILE_Y,
+      });
+    };
+    const up = () => {
+      boxDragRef.current = null;
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    return () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+  }, []);
+
   const adjustZoom = (dir: 'in' | 'out' | 'reset') => {
     if (dir === 'reset') {
       setViewBox(INITIAL_VIEWBOX);
@@ -326,10 +371,11 @@ export default function WorldPage() {
             {/* the real map, served from public/ (not inlined) */}
             <image href="/map.svg" x={0} y={0} width={SVG_W} height={SVG_H} />
 
-            {/* locator box — the patch of coast the landing inset is watching */}
+            {/* locator box — the patch the landing inset is watching; drag it
+                to pan the inset and follow people away from the landing site */}
             {worldSnapshot !== null &&
               (() => {
-                const lw = landingWindowTiles(worldSnapshot);
+                const lw = landingWindowTiles(worldSnapshot, insetOffset);
                 if (lw === null) return null;
                 const [ax, ay] = tileToSvg(lw.x0, lw.y0);
                 const [bx, by] = tileToSvg(lw.x1, lw.y1);
@@ -343,8 +389,12 @@ export default function WorldPage() {
                     fillOpacity={0.1}
                     stroke={c.accent}
                     strokeWidth={1.4 * mk}
-                    pointerEvents="none"
-                  />
+                    onMouseDown={onBoxDown}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ cursor: 'move' }}
+                  >
+                    <title>Drag to follow people beyond the landing site</title>
+                  </rect>
                 );
               })()}
 
@@ -452,6 +502,8 @@ export default function WorldPage() {
         <LandingInset
           snapshot={worldSnapshot}
           selectedId={selectedAgent?.id ?? null}
+          offset={insetOffset}
+          onRecenter={() => setInsetOffset({ dx: 0, dy: 0 })}
           onSelect={(a) => {
             setSelectedDeadAgent(null);
             setSelectedAgent(a);

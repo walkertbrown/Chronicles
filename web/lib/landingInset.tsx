@@ -23,6 +23,7 @@ const f = oracle.fonts;
 // Only used to clamp the window horizontally; the vertical anchor comes from
 // the beached vessel's own y, so these can't silently drift the framing.
 const SIM_W = 3000;
+const SIM_H = 1500;
 
 // Inset coordinate space (logical px); CSS scales the <svg> to fit its box.
 const BOXW = 240;
@@ -58,15 +59,23 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
-// The fixed sim-tile window the inset frames. Shared with the world map so it
-// can draw a locator box over the same patch of coast. null until the vessel
+// A pan offset (in sim tiles) slides the window off the landing site so the
+// viewer can follow agents who've wandered away. dx/dy default to 0, so the
+// locator box, inset, and any other caller share one source of truth.
+export type InsetOffset = { dx: number; dy: number };
+
+// The sim-tile window the inset frames. Shared with the world map so it can
+// draw a locator box over the same patch of coast. null until the vessel
 // beaches (no landing site to frame yet).
 export function landingWindowTiles(
   snapshot: WorldSnapshot | null,
+  offset: InsetOffset = { dx: 0, dy: 0 },
 ): { x0: number; y0: number; x1: number; y1: number } | null {
   if (snapshot === null || !snapshot.vessel.beached) return null;
-  const cx = snapshot.vessel.position.x;
-  const cy = snapshot.vessel.position.y;
+  const cx = snapshot.vessel.position.x + offset.dx;
+  // Keep the window's vertical centre on-map. With dx=dy=0 the clamp is a
+  // no-op (the vessel beaches mid-map), so the default framing is unchanged.
+  const cy = clamp(snapshot.vessel.position.y + offset.dy, WIN_NORTH, SIM_H);
   const x0 = clamp(cx - WIN_HALF_X, 0, Math.max(0, SIM_W - WIN_HALF_X * 2));
   return { x0, y0: cy - WIN_NORTH, x1: x0 + WIN_HALF_X * 2, y1: cy + WIN_SOUTH };
 }
@@ -75,10 +84,14 @@ export function LandingInset({
   snapshot,
   selectedId,
   onSelect,
+  offset = { dx: 0, dy: 0 },
+  onRecenter,
 }: {
   snapshot: WorldSnapshot | null;
   selectedId: string | null;
   onSelect: (agent: AgentSnapshot) => void;
+  offset?: InsetOffset;
+  onRecenter?: () => void;
 }) {
   // Draggable panel — grab the header to slide the inset anywhere over the map
   // so it never sits on top of something you want to watch. A null position
@@ -132,7 +145,7 @@ export function LandingInset({
   // The landing site only exists once the vessel beaches; before that nobody
   // is ashore and there is nothing to frame. Window bounds are shared with the
   // world-map locator box via landingWindowTiles().
-  const win = landingWindowTiles(snapshot);
+  const win = landingWindowTiles(snapshot, offset);
   const beached = win !== null;
   const winX0 = win?.x0 ?? 0;
   const winY0 = win?.y0 ?? 0;
@@ -257,7 +270,29 @@ export function LandingInset({
         >
           LANDING
         </span>
-        <span style={{ fontFamily: f.mono, fontSize: 9, color: c.textFaint }}>{ashore} ashore</span>
+        <span style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+          {(offset.dx !== 0 || offset.dy !== 0) && onRecenter !== undefined && (
+            <button
+              // stopPropagation so the click recentres instead of starting a panel drag
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={onRecenter}
+              title="Recenter on the landing site"
+              style={{
+                fontFamily: f.mono,
+                fontSize: 9,
+                color: c.accent,
+                background: 'transparent',
+                border: `1px solid ${c.line}`,
+                borderRadius: 2,
+                padding: '0 4px',
+                cursor: 'pointer',
+              }}
+            >
+              recenter
+            </button>
+          )}
+          <span style={{ fontFamily: f.mono, fontSize: 9, color: c.textFaint }}>{ashore} ashore</span>
+        </span>
       </div>
 
       <svg
