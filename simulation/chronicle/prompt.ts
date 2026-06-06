@@ -322,10 +322,40 @@ function formatWorldHeader(packages: ThreadPackage[]): string {
 // CHRONICLE PROMPT
 // ============================================================
 
-export function buildChroniclePrompt(packages: ThreadPackage[], hasLanded: boolean): string {
+export function buildChroniclePrompt(
+  packages: ThreadPackage[],
+  hasLanded: boolean,
+  previousPage?: string | null,
+): string {
   if (packages.length === 0) {
     return 'No chronicle threads are active. Write nothing.';
   }
+
+  const previousPageBlock =
+    previousPage != null && previousPage.trim().length > 0
+      ? `---
+
+YESTERDAY'S PAGE — the page you wrote last. Read it. Today continues the same
+story; it must not repeat it.
+
+"""
+${previousPage.trim()}
+"""
+
+Hard continuity rules, measured against that page:
+- Advance. Something must be true at the end of today's page that was not true
+  at its start. Do not re-render the same situation in fresh words.
+- Do not reuse its images or sensory motifs. If yesterday found iron-colored
+  water or soft wood under a thumb, today finds its own specifics.
+- Do not reuse an exchange. If two people had a beat yesterday ("X again." /
+  "Second time today."), they do not have that same beat today — the situation
+  has moved, so the words have moved with it.
+- Do not reuse its closing move. Vary how the page ends.
+- Returning to a person's CONFIRMED habit is right (Rule Four) — but render the
+  habit with new specifics every time. The habit recurs; the exact words do not.
+
+`
+      : '';
 
   const threadBlocks = packages.map((pkg) => formatThreadBlock(pkg, hasLanded)).join('\n\n---\n\n');
 
@@ -455,6 +485,12 @@ tag. There is tension underneath every exchange, even between people who agree.
 The scene goes somewhere — something shifts by the end, even slightly. You are
 not inventing — you are completing what the data began.
 
+When the material of a thread is a conflict between people, do not only report
+it secondhand through a bystander who heard it happen. Enter it at least once —
+the words as they are spoken, the temperature between the two — so the reader
+feels the heat, not merely hears that there was heat. A conflict always
+narrated from across the camp is a conflict the reader never has to survive.
+
 If a data field is empty or zero, do not render it.
 Silence in the data is silence in the chronicle.
 
@@ -475,9 +511,11 @@ return in the memory of someone who loved them, when the moment earns it.
 Someone gone is not gone from the people who remain. The chronicle may return
 to them when their absence is felt, not as summary, but as presence.
 
-End each page in motion. Not a conclusion — an opening. Something unresolved,
-something approaching. The last sentence should feel like a held breath, not
-a broken one.
+End each page in motion — narrative motion, not literal locomotion. Not a
+conclusion but an opening: a decision not yet made, a question left hanging,
+something approaching. Do NOT default to ending on a character walking toward
+something — that has become a tic. Reach for a different kind of unresolved.
+The last sentence should feel like a held breath, not a broken one.
 
 Supporting cast: the people around the thread character are characters too.
 Name them. Return to them. Let them speak. Let them act. When someone dies,
@@ -490,6 +528,8 @@ Do not name them individually unless a bond has formed. When a bond event
 appears, treat it as a major narrative moment. A light bond is wonder and
 recognition arriving quietly. A dark bond shifts the register — something is
 wrong before the chronicle names it. A broken bond is grief.
+
+${previousPageBlock}---
 
 ${formatWorldHeader(packages)}
 
