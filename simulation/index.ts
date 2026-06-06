@@ -3,6 +3,7 @@
 
 import 'dotenv/config';
 import seedrandom from 'seedrandom';
+import type { WorldState } from '@shared/types.js';
 import { createWorldState, tick } from './tick.js';
 import { generateChronicle, shouldGenerateChronicle, ensurePrologueSeeded } from './chronicle/generator.js';
 import { generateSummary, shouldGenerateSummary } from './summary/generator.js';
@@ -19,6 +20,45 @@ const TICK_INTERVAL_MS = RUN_MODE === 'production' ? 450000 : 200;
 // the landing) never saved and the world replayed the same day forever. Ticks are
 // far apart in production, so checkpoint every one; keep the cheap cadence in dev.
 const CHECKPOINT_TICK_INTERVAL = RUN_MODE === 'production' ? 1 : 50;
+
+// One-time, idempotent: ensure a few unbonded Conduits linger at the settlement's
+// treeline so the watchers appear as ambient background. Lore-consistent — they
+// are "curious about humans from far off" and drift toward population. Once enough
+// are near, the guard short-circuits, so this no-ops on subsequent restarts.
+function nudgeConduitsToTreeline(state: WorldState): void {
+  const alive = state.agents.filter((a) => a.alive);
+  if (alive.length === 0) return;
+  const cx = Math.round(alive.reduce((s, a) => s + a.position.x, 0) / alive.length);
+  const cy = Math.round(alive.reduce((s, a) => s + a.position.y, 0) / alive.length);
+
+  const NEAR = 70; // a Conduit within this of camp counts as already present
+  const WANT = 4; // keep at least this many watchers near the settlement
+  const distToCamp = (c: { position: { x: number; y: number } }): number =>
+    Math.abs(c.position.x - cx) + Math.abs(c.position.y - cy);
+
+  const unbonded = state.conduits.filter((c) => c.bondedAgentId === null);
+  const present = unbonded.filter((c) => distToCamp(c) <= NEAR).length;
+  if (present >= WANT) return; // watchers already at the edges — leave them be
+
+  const toMove = unbonded
+    .filter((c) => distToCamp(c) > NEAR)
+    .sort((a, b) => distToCamp(a) - distToCamp(b))
+    .slice(0, WANT - present);
+
+  toMove.forEach((c, i) => {
+    // A loose ring ~18 tiles out, biased a touch toward the coast (the treeline
+    // between the camp and the water) — just out of sight, drifting closer.
+    const angle = (i / Math.max(1, toMove.length)) * Math.PI * 2;
+    c.position = {
+      x: Math.max(10, Math.min(2990, cx + Math.round(Math.cos(angle) * 18))),
+      y: Math.max(1, cy + 12 + Math.round(Math.sin(angle) * 9)),
+    };
+  });
+
+  if (toMove.length > 0) {
+    console.log(`Drew ${toMove.length} Conduit(s) to the treeline near the settlement.`);
+  }
+}
 
 async function main(): Promise<void> {
   const saved = await loadCheckpoint(WORLD_ID);
@@ -41,6 +81,10 @@ async function main(): Promise<void> {
         agent.inventory = { wood: 0, items: [] };
       }
     }
+    // The generator now seeds a few treeline watchers near the landing, but this
+    // world was generated before that — draw a handful of Conduits down to the
+    // settlement's edge so the luminous creatures are present from the start.
+    nudgeConduitsToTreeline(state);
   }
   process.on('SIGINT', () => {
     console.log('\nSimulation interrupted. Writing final checkpoint...');

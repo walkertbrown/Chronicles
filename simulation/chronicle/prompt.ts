@@ -308,6 +308,13 @@ function formatWorldHeader(packages: ThreadPackage[]): string {
     lines.push(ctx.groupLocation);
   }
 
+  if (ctx.conduitPresence.length > 0) {
+    lines.push(
+      'The luminous creatures were seen at the edges (BACKGROUND — the people have no name or understanding for them yet; render as ambient color, a glimpse, never explained, never a main event unless a bond is noted): ' +
+        ctx.conduitPresence.join('; '),
+    );
+  }
+
   return lines.join('\n');
 }
 
