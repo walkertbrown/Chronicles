@@ -438,6 +438,18 @@ export default function WorldPage() {
                       stroke="#4a3420"
                       strokeWidth={mk}
                     />
+                    {done && (s.fireFuel ?? 0) > 0 && (
+                      <g>
+                        <circle cx={hx} cy={hy - bodyH / 2} r={3 * mk} fill="#ff9a3c" opacity={0.5}>
+                          <animate attributeName="opacity" values="0.5;0.2;0.5" dur="1.8s" repeatCount="indefinite" />
+                          <animate attributeName="r" values={`${2.4 * mk};${3.6 * mk};${2.4 * mk}`} dur="1.8s" repeatCount="indefinite" />
+                        </circle>
+                        <path
+                          d={`M ${hx} ${hy - bodyH / 2 - 3 * mk} L ${hx + 1.6 * mk} ${hy - bodyH / 2} L ${hx - 1.6 * mk} ${hy - bodyH / 2} Z`}
+                          fill="#ffb347"
+                        />
+                      </g>
+                    )}
                   </g>
                 );
               })}

@@ -339,6 +339,9 @@ export function LandingInset({
                 stroke="#4a3420"
                 strokeWidth={0.5}
               />
+              {done && (s.fireFuel ?? 0) > 0 && (
+                <circle cx={px} cy={py - bodyH / 2} r={1.5} fill="#ffb347" opacity={0.9} />
+              )}
             </g>
           );
         })}

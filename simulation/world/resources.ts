@@ -19,6 +19,11 @@ const SEASON_REGEN_MODIFIER: Record<Season, number> = {
 // real pressure to forage inland rather than camp on the beach forever.
 const COAST_FOOD_FLOOR = 0.02;
 
+// A hearth burns down each tick, so a fire must be fed to stay lit. Full fuel
+// (1.0) lasts ~25 ticks; at the production pace (~7.5 min/tick) that's a few
+// hours, after which the band must bring more wood.
+const FIRE_BURN_RATE = 0.04;
+
 function clamp01(v: number): number {
   return Math.max(0, Math.min(1, v));
 }
@@ -49,6 +54,10 @@ export function tickAllResources(tiles: TileCache, season: Season): void {
     // lazy backfill runs; guard so regen never dereferences undefined.
     if (tile.resources.wood !== undefined) regenResource(tile.resources.wood, modifier);
     applyCoastFoodFloor(tile);
+    // A lit hearth burns down over time and must be re-fed with wood.
+    if (tile.structure !== null && tile.structure.fireFuel > 0) {
+      tile.structure.fireFuel = Math.max(0, tile.structure.fireFuel - FIRE_BURN_RATE);
+    }
   }
 }
 
