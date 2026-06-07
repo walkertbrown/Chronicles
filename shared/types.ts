@@ -49,6 +49,15 @@ export enum StructureType {
   Shelter = 'shelter',   // a hut: anchors the camp and shelters rest
 }
 
+// The three kinds of thing the ancient civilization left behind. Their meaning
+// stays sealed (legible=false) until the Conduit-as-key / source arc unlocks it;
+// for now they are pure, unexplained mystery surfaced in the chronicle.
+export enum ArtifactKind {
+  Tool = 'tool',     // an ancient implement, made for a hand
+  Record = 'record', // inscribed fragments in the dead language
+  Relic = 'relic',   // a thing with no word yet in any living tongue
+}
+
 export enum EventType {
   Death = 'death',
   Birth = 'birth',
@@ -265,6 +274,11 @@ export interface Artifact {
   id: string
   discovered: boolean
   imprinted: boolean  // True if companion has imprinted on it
+  // Optional so artifacts persisted before this existed still load; new ones
+  // (and any the chronicle features) always carry them.
+  kind?: ArtifactKind     // tool / record / relic
+  descriptor?: string     // the evocative SURFACE — what it looks like, never what it means
+  legible?: boolean       // false until a bond/the source makes its meaning readable
 }
 
 // A built structure occupying a tile. Raised by depositing chopped wood; rides
