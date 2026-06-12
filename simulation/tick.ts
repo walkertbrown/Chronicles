@@ -16,6 +16,7 @@ import {
   snapshotTraits,
 } from './agents/traits.js';
 import { detectDeaths, getTopAgentsBySignificance, tickSignificance } from './agents/significance.js';
+import { tickPredatorThreat } from './agents/predators.js';
 import { createConduits, tickAllConduits } from './companions/being.js';
 import { tickSource } from './source/source.js';
 import {
@@ -286,6 +287,7 @@ export function tick(state: WorldState, rng: () => number): TickSummary {
     const agentOutcomes: TickOutcome[] = [];
     executeAgentAction(agent, state, agentOutcomes);
     outcomesByAgent.set(agent.id, agentOutcomes);
+    tickPredatorThreat(agent, state);
   }
 
   for (const [agentId, agentOutcomes] of outcomesByAgent) {
@@ -369,7 +371,15 @@ export function tick(state: WorldState, rng: () => number): TickSummary {
 
     agent.alive = false;
     removeAgentFromTile(state, agent);
-    logDeathEvent(state, agent, death.cause);
+    if (death.cause === 'violence' && agent.lastAttackerId !== null) {
+      const killer = findAgent(state, agent.lastAttackerId);
+      const killerFullName = killer !== undefined
+        ? `${killer.name} ${killer.familyName}`
+        : undefined;
+      logDeathEvent(state, agent, death.cause, killerFullName);
+    } else {
+      logDeathEvent(state, agent, death.cause);
+    }
     applyDeathRipples(state, agent);
     deathsThisTick.push(death.agentId);
   }

@@ -292,7 +292,7 @@ function updateChronicleThreads(state: WorldState): void {
 
 export interface DeathRecord {
   agentId: string;
-  cause: 'starvation' | 'age' | 'illness' | 'animal';
+  cause: 'starvation' | 'age' | 'illness' | 'animal' | 'violence';
 }
 
 export function detectDeaths(state: WorldState): DeathRecord[] {
@@ -306,6 +306,11 @@ export function detectDeaths(state: WorldState): DeathRecord[] {
     } else if (agent.healthScore <= 0) {
       let cause: DeathRecord['cause'] = 'age';
       if (
+        agent.lastViolenceTick !== null &&
+        state.tick - agent.lastViolenceTick <= 10
+      ) {
+        cause = 'violence';
+      } else if (
         agent.animalAttackTick !== null &&
         state.tick - agent.animalAttackTick <= 10
       ) {

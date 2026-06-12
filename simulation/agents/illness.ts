@@ -62,7 +62,7 @@ function agentsOnSameTile(agent: Agent, state: WorldState): Agent[] {
   );
 }
 
-function hasAdjacentHealer(agent: Agent, state: WorldState): boolean {
+export function hasAdjacentHealer(agent: Agent, state: WorldState): boolean {
   for (const other of aliveAgents(state)) {
     if (other.id === agent.id) continue;
     const distance = manhattanDistance(

@@ -40,6 +40,9 @@ export enum OutcomeType {
   FoundResource = 'found_resource', // Agent found a resource-rich tile for the first time
   FoundRuin = 'found_ruin',         // Agent stepped onto a ruin tile for the first time
   FoundArtifact = 'found_artifact', // Agent discovered an artifact
+
+  // Exploration foray
+  Ventured = 'ventured',            // Agent is on a wanderlust-driven inland foray
 }
 
 export interface TickOutcome {
