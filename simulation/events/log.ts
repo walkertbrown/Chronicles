@@ -34,6 +34,7 @@ const NARRATIVE_WEIGHTS: Record<EventType, number> = {
   [EventType.ConduitBondBroken]: 0.75,
   [EventType.SourceAwakened]: 0.98,   // the door beyond the ruins opens — the largest beat there is
   [EventType.SourceShifted]: 0.95,    // control of the source flips light↔dark
+  [EventType.Conception]: 0.55,       // a pair bond conceives — quiet but chronicle-worthy
 };
 
 // ============================================================
@@ -277,5 +278,20 @@ export function logIllnessEvent(
     { x: agent.position.x, y: agent.position.y },
     description,
     [agent.familyName],
+  );
+}
+
+export function logConceptionEvent(
+  state: WorldState,
+  mother: Agent,
+  father: Agent,
+): SimEvent {
+  return logEvent(
+    state,
+    EventType.Conception,
+    [mother.id, father.id],
+    { x: mother.position.x, y: mother.position.y },
+    `${mother.name} ${mother.familyName} is with child.`,
+    [mother.familyName],
   );
 }

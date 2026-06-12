@@ -690,6 +690,7 @@ export function initializeAgents(
       discoveredTileIds: [],
       illnessState: null,
       animalAttackTick: null,
+      pregnancy: null,
     };
   });
 

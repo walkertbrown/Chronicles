@@ -4,7 +4,7 @@
 
 import type { Agent, SimEvent, TileCache, WorldState, WorldTile } from '@shared/types.js';
 import { EventType, Terrain } from '@shared/types.js';
-import { TICKS_PER_DAY, isStarving, starvationUrgency } from '../agents/drives.js';
+import { TICKS_PER_DAY, TICKS_PER_YEAR, isStarving, starvationUrgency } from '../agents/drives.js';
 import { isSick, illnessSeverity } from '../agents/illness.js';
 import { getTopAgentsBySignificance } from '../agents/significance.js';
 import { getRecentEventsForAgent, getSignificantRecentEvents } from '../events/log.js';
@@ -79,6 +79,7 @@ export interface ThreadPackage {
     companionBonded: boolean;
     conduitBondType: 'light' | 'dark' | null;
     conduitEvents: Array<{ tick: number; description: string; weight: number; type: EventType }>;
+    pregnancyNarrative: string;
   };
   supportingCast: SupportingCharacter[];
   worldContext: WorldContext;
@@ -386,6 +387,19 @@ function describeHealthState(agent: Agent): string {
   if (agent.healthScore > 0.6) return 'Health declining.';
   if (agent.healthScore > 0.3) return 'Seriously weakened.';
   return 'Near death from age or illness.';
+}
+
+// GESTATION_TICKS mirrors the constant in gestation.ts (0.75 × TICKS_PER_YEAR = 1080).
+// Kept local so packager.ts has no circular dependency on births/gestation.
+const PACKAGER_GESTATION_TICKS = Math.round(0.75 * TICKS_PER_YEAR); // 1080
+
+function describePregnancyState(agent: Agent, state: WorldState): string {
+  if (agent.pregnancy === null) return '';
+  const elapsed = state.tick - agent.pregnancy.conceivedTick;
+  if (elapsed < PACKAGER_GESTATION_TICKS / 2) {
+    return 'With child.';
+  }
+  return 'Heavy with child — her time draws near.';
 }
 
 function describeConduitProximity(totalTicks: number): string {
@@ -755,6 +769,7 @@ function packThread(
       hungerNarrative: describeHungerState(agent, state),
       sicknessNarrative: describeSicknessState(agent, state),
       healthNarrative: describeHealthState(agent),
+      pregnancyNarrative: describePregnancyState(agent, state),
       companionProximityNarrative: describeConduitProximity(
         getConduitProximityTicks(state, agent.id),
       ),

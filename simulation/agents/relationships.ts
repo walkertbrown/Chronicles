@@ -24,11 +24,11 @@ const TRUST_SMALL = 0.015;
 const TRUST_MEDIUM = 0.03;
 const TRUST_LARGE = 0.06;
 
-const PAIR_BOND_THRESHOLD = 0.65;
+const PAIR_BOND_THRESHOLD = 0.7;
 const KIN_BOND_THRESHOLD = 0.4;
 const RIVAL_BOND_THRESHOLD = -0.4;
 
-const PAIR_BOND_MIN_INTERACTIONS = 20;
+const PAIR_BOND_MIN_INTERACTIONS = 8;
 const KIN_BOND_MIN_INTERACTIONS = 5;
 const RIVAL_BOND_MIN_INTERACTIONS = 8;
 
@@ -69,7 +69,19 @@ function resolveBondType(
     trust >= PAIR_BOND_THRESHOLD &&
     interactionCount >= PAIR_BOND_MIN_INTERACTIONS
   ) {
-    return BondType.Pair;
+    // One-mate exclusivity: neither agent may already hold a Pair bond with a
+    // DIFFERENT partner. If either does, we fall through rather than promote —
+    // the existing pair persists, and the current relationship stays as-is.
+    // Once a pair dissolves (drops to None) the agent is freed to bond again.
+    const agentAHasOtherPair = agentA.relationships.some(
+      (r) => r.bond === BondType.Pair && r.agentId !== agentB.id,
+    );
+    const agentBHasOtherPair = agentB.relationships.some(
+      (r) => r.bond === BondType.Pair && r.agentId !== agentA.id,
+    );
+    if (!agentAHasOtherPair && !agentBHasOtherPair) {
+      return BondType.Pair;
+    }
   }
 
   if (bond === BondType.Pair || bond === BondType.Kin || bond === BondType.Rival) {

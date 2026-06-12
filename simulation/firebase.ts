@@ -2,7 +2,7 @@ import admin from 'firebase-admin';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ChronicleEntry, WorldState } from '@shared/types.js';
+import type { Agent, ChronicleEntry, WorldState } from '@shared/types.js';
 import { TileCacheImpl } from './world/tileCache.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -78,6 +78,7 @@ export async function writeCheckpoint(state: WorldState): Promise<void> {
         lastAteAtTick: a.lastAteAtTick,
         lastDrankAtTick: a.lastDrankAtTick,
         animalAttackTick: a.animalAttackTick,
+        pregnancy: a.pregnancy ?? null,
       })),
       vessel: state.vessel,
       conduits: state.conduits,
@@ -161,6 +162,14 @@ export async function loadCheckpoint(worldId: string): Promise<WorldState | null
     // the seasons. Default to 0 so the clock keeps running.
     if (typeof state.ticksInCurrentSeason !== 'number') {
       state.ticksInCurrentSeason = 0;
+    }
+    // pregnancy was added in the pair-bond recalibration pass. Pre-existing
+    // checkpoints don't have it — default all loaded agents to not-pregnant so the
+    // live world resumes cleanly without TypeScript runtime errors.
+    for (const agent of state.agents) {
+      if (!('pregnancy' in agent)) {
+        (agent as Agent).pregnancy = null;
+      }
     }
     console.log(`Checkpoint loaded — tick ${state.tick}, day ${state.day}`);
     return state;
