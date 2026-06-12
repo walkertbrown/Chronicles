@@ -7,6 +7,7 @@ import { fatigueModifier } from './drives.js';
 import { isSick, illnessSeverity, illnessSkillMultiplier, checkWoundInfection } from './illness.js';
 import { OutcomeType, type TickOutcome } from './outcomes.js';
 import { getRelationship, socialRestorationValue } from './relationships.js';
+import { wanderlustExpresses, actionVenture, agentIsDwelling } from './exploration.js';
 import { COAST_ROW } from '../world/generator.js';
 import {
   findBestWaterTile,
@@ -176,6 +177,7 @@ const DRIVE_KEYS: Array<keyof Drives> = [
   'socialNeed',
   'grief',
   'longing',
+  'wanderlust',  // below all survival/emotional drives — gated by wanderlustExpresses
 ];
 
 // Shelter tiles will provide a bonus multiplier to fatigue restoration when added.
@@ -261,6 +263,34 @@ function getDominantDrive(agent: Agent): keyof Drives | null {
   );
   const pool = survivalPressing.length > 0 ? survivalPressing : aboveThreshold;
 
+  // Wanderlust promotion: in the non-survival pool, a venture-eligible agent
+  // (curious, unbonded, high wanderlust) should not be permanently blocked by
+  // longing. When wanderlustExpresses() passes, treat wanderlust as if it equals
+  // the pool's maximum so it can compete rather than lose on raw value alone.
+  // Survival drives already preempted if pressing; bonded agents fail
+  // wanderlustExpresses() and skip this path; reproduction is unaffected.
+  if (survivalPressing.length === 0 && pool.includes('wanderlust') && wanderlustExpresses(agent)) {
+    let maxValue = 0;
+    for (const key of pool) {
+      if (key !== 'wanderlust') maxValue = Math.max(maxValue, agent.drives[key]);
+    }
+    // Raise wanderlust's effective value to match the highest non-wanderlust drive
+    // so it ties and can win the tie-break rather than losing outright.
+    const wanderlustEffective = Math.max(agent.drives.wanderlust ?? 0, maxValue);
+    const effectivePool = pool.map((key) => ({
+      key,
+      value: key === 'wanderlust' ? wanderlustEffective : agent.drives[key],
+    }));
+    const effectiveMax = effectivePool.reduce((m, e) => Math.max(m, e.value), 0);
+    const tied = effectivePool
+      .filter((e) => e.value >= effectiveMax - 0.01)
+      .map((e) => e.key);
+    if (tied.length === 1) return tied[0] ?? null;
+    // Tie-break: prefer wanderlust over longing for venture-eligible agents.
+    if (tied.includes('wanderlust')) return 'wanderlust';
+    return resolveDriveTie(agent, tied);
+  }
+
   let maxValue = 0;
   for (const key of pool) {
     maxValue = Math.max(maxValue, agent.drives[key]);
@@ -275,10 +305,26 @@ function getDominantDrive(agent: Agent): keyof Drives | null {
   return resolveDriveTie(agent, tied);
 }
 
+// O(1) Set index for discovered tiles — mirrors the one in exploration.ts.
+// The backing array is the serialized source of truth; the Set is the fast
+// runtime view.  Lazily built on first call, never serialized.
+type AgentWithDiscoveredSet = Agent & { _discoveredSet?: Set<string> };
+
+function getDiscoveredSet(agent: Agent): Set<string> {
+  const a = agent as AgentWithDiscoveredSet;
+  if (a._discoveredSet !== undefined) return a._discoveredSet;
+  const set = new Set<string>(agent.discoveredTileIds ?? []);
+  a._discoveredSet = set;
+  return set;
+}
+
 function markDiscovered(agent: Agent, x: number, y: number): boolean {
   const id = tileId(x, y);
+  const set = getDiscoveredSet(agent);
+  if (set.has(id)) return false;
+  set.add(id);
+  // Keep the array in sync so Firestore serialization is unchanged.
   if (!agent.discoveredTileIds) agent.discoveredTileIds = [];
-  if (agent.discoveredTileIds.includes(id)) return false;
   agent.discoveredTileIds.push(id);
   return true;
 }
@@ -964,9 +1010,9 @@ function pickExploreTile(agent: Agent, state: WorldState): WorldTile | undefined
     agent.position.y,
   ).filter((tile) => isPassable(tile.terrain, state.vessel.beached) && !isVesselZone(tile.y));
 
-  if (!agent.discoveredTileIds) agent.discoveredTileIds = [];
+  const discoveredSet = getDiscoveredSet(agent);
   const undiscovered = adjacent.filter(
-    (tile) => !agent.discoveredTileIds.includes(tileId(tile.x, tile.y)),
+    (tile) => !discoveredSet.has(tileId(tile.x, tile.y)),
   );
 
   if (undiscovered.length > 0) {
@@ -979,9 +1025,8 @@ function pickExploreTile(agent: Agent, state: WorldState): WorldTile | undefined
     if (best !== undefined) return best;
   }
 
-  if (!agent.discoveredTileIds) agent.discoveredTileIds = [];
   const randomUndiscovered = undiscovered.filter(
-    (tile) => !agent.discoveredTileIds.includes(tileId(tile.x, tile.y)),
+    (tile) => !discoveredSet.has(tileId(tile.x, tile.y)),
   );
   if (randomUndiscovered.length > 0) {
     const index = Math.floor(Math.random() * randomUndiscovered.length);
@@ -1730,6 +1775,11 @@ function describeOutcome(outcome: TickOutcome, agent: Agent): string {
       }
       return 'Drawn toward something beyond the ruins';
 
+    case OutcomeType.Ventured:
+      if (outcome.success) return 'Venturing inland';
+      if (outcome.partial) return 'Scouting the interior — path blocked';
+      return 'Scouting the interior';
+
     case OutcomeType.Wandered:
       return agent.drives.grief > 0.6 ? 'Moving without direction' : 'Wandering';
 
@@ -1895,6 +1945,15 @@ export function executeAgentAction(
   } else {
     switch (drive) {
       case 'hunger': {
+        // Dwell suppression: a venturing scout on dangerous terrain (Ruin/Forest/
+        // Mountain) has mild hunger suppressed so it doesn't immediately retreat to
+        // the coast. Severe hunger (>DWELL_HUNGER_RESIST_MAX) still preempts — the
+        // agent must be able to leave before starving.
+        if (agentIsDwelling(agent)) {
+          // Stay in the venture action so the dwell clock ticks down
+          outcome = actionVenture(agent, state);
+          break;
+        }
         if (!shouldEatNotDrink(agent, state)) {
           outcome = actionDrinkWater(agent, state);
           break;
@@ -1933,6 +1992,13 @@ export function executeAgentAction(
       }
       case 'grief':
         outcome = actionWander(agent, state);
+        break;
+      case 'wanderlust':
+        // Only actually venture if the full gating predicate is met; otherwise
+        // fall through to idle/wander so a low-curiosity agent doesn't venture.
+        outcome = wanderlustExpresses(agent)
+          ? actionVenture(agent, state)
+          : actionIdle(agent, state);
         break;
       default:
         outcome = actionWander(agent, state);

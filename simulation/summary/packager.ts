@@ -128,13 +128,17 @@ export function packSummary(state: WorldState): SummaryPackage {
   const candidates = getTopAgentsBySignificance(state, CANDIDATE_POOL);
   const recentEvents = recentEventsSince(state, SUMMARY_EVENT_WINDOW);
 
+  // Cap at 10 most-recent each: in a deadly world a 2-day window can accumulate
+  // many deaths/conflicts and balloon the summary payload.
   const recentDeaths = recentEvents
     .filter((e) => e.type === EventType.Death)
-    .map((e) => e.description);
+    .map((e) => e.description)
+    .slice(-10);
 
   const recentConflicts = recentEvents
     .filter((e) => e.type === EventType.Conflict)
-    .map((e) => e.description);
+    .map((e) => e.description)
+    .slice(-10);
 
   return {
     day: state.day,

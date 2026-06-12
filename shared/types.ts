@@ -93,6 +93,8 @@ export interface Drives {
   socialNeed: number  // Depletes ~0.0005/tick when isolated. Restored by meaningful interaction
   grief: number       // Spikes from loss events. Fades slowly. Never fully disappears same tick it was created
   longing: number     // Builds ~0.0003/tick always. Seeks bonded partner or highest-trust agent
+  wanderlust: number  // Builds slowly, scaled by curiosity; discharged by reaching new ground;
+                      // gated below survival drives — the pull toward the unknown interior
 }
 
 // ============================================================

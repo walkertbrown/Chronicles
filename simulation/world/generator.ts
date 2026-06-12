@@ -54,7 +54,7 @@ export interface GeneratedWorld {
 // ============================================================
 
 const CONDUIT_COUNT = 75;
-const FRONTIER_CONDUITS = 5;  // how many of the 75 watch from the treeline near the landing
+const FRONTIER_CONDUITS = 8;  // how many of the 75 watch from the treeline near the landing
 
 /**
  * Spawn 75 Conduits across the interior of the new world.
@@ -67,6 +67,12 @@ const FRONTIER_CONDUITS = 5;  // how many of the 75 watch from the treeline near
  * - None in the far-north ruin zone initially — that discovery belongs
  *   to agents who earn it
  * - Spread across x-axis to avoid clustering
+ *
+ * Frontier Conduits (first FRONTIER_CONDUITS of the 75) are spawned in a tight
+ * band very close to the coast (y≈1430-1480, i.e. 19-69 tiles north of COAST_ROW).
+ * This puts them within scouting range of ranging agents — sighting radius is 10,
+ * and scouts range 25-60 tiles, so frontier Conduits at ~20-60 tiles north are
+ * routinely encountered within the first 1000-2000 ticks.
  */
 function spawnConduits(rng: RNG): ConduitBeing[] {
   const conduits: ConduitBeing[] = [];
@@ -76,11 +82,12 @@ function spawnConduits(rng: RNG): ConduitBeing[] {
   const yMin = Math.floor(COAST_ROW * 0.10);  // ~150 — far interior but not ruin tip
   const yMax = Math.floor(COAST_ROW * 0.82);  // ~1229 — well away from landing coast
 
-  // A few linger at the treeline near where the settlers come ashore — watching
-  // from a distance, as the spec's opening image intends ("luminous creatures
-  // watching from the trees"). The rest keep to the interior.
-  const frontierYMin = Math.floor(COAST_ROW * 0.86);  // ~1289 — just inland of the coast
-  const frontierYMax = Math.floor(COAST_ROW * 0.95);  // ~1424 — treeline above the landing
+  // Frontier Conduits: tight band very near the coast so fresh worlds immediately
+  // have watchers within sighting range of ranging scouts. Previous band was 1289-1424
+  // (75-210 tiles north) — too far for the sighting radius of 10. New band is
+  // 1430-1480 (19-69 tiles north), reachable by scouts in their first forays.
+  const frontierYMin = COAST_ROW - 69;   // 1430 — farthest a frontier Conduit spawns
+  const frontierYMax = COAST_ROW - 19;   // 1480 — closest (still inland of the coast fringe)
   const landingCenterX = Math.floor(MAP_WIDTH / 2);
 
   for (let i = 0; i < CONDUIT_COUNT; i++) {

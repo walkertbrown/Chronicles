@@ -26,7 +26,7 @@ const TERRAIN_RESOURCES: Record<Terrain, [number, number, number, number, number
   [Terrain.River]:    [0.5, 1.0, 0.2, 0.7,  0.35],
   [Terrain.Mountain]: [0.1, 0.2, 0.8, 0.3,  0.15],
   [Terrain.Coast]:    [0.4, 0.6, 0.2, 0.25, 0.1],
-  [Terrain.Ruin]:     [0.1, 0.1, 0.4, 0.2,  0.15],
+  [Terrain.Ruin]:     [0.25, 0.1, 0.4, 0.2,  0.15],
   [Terrain.Vessel]:   [0.1, 0.1, 0.5, 0.0,  0.0],
 };
 
@@ -105,7 +105,15 @@ function computeWorldFeatures(seed: number): WorldFeatures {
     rx = Math.max(2, Math.min(MAP_WIDTH - 3, rx));
   }
 
-  // Forest clusters — mirrors paintForests in generator.ts
+  // Forest clusters — mirrors paintForests in generator.ts.
+  // Far clusters: scattered through the deep interior (unchanged range).
+  // Near clusters: seeded in the 30-70 tile band north of the coast so that
+  // scouts on a ~25-60 tile foray can reach dangerous terrain and trigger the
+  // dwell mechanic and predator threat within the first weeks.  We add 3 near
+  // clusters; their cy values are drawn from [COAST_ROW-70, COAST_ROW-30], i.e.
+  // y ≈ 1429-1469.  That keeps them out of the immediate landing zone (y≥1497)
+  // but squarely in the foray range.  The 15-tile minimum from the coast fringe
+  // (coast band is COAST_ROW-2 .. COAST_ROW) is satisfied by the -30 lower bound.
   const forestClusters: Array<{ cx: number; cy: number; radius: number }> = [];
   const clusterCount = rInt(rng, 3, 4);
   for (let c = 0; c < clusterCount; c++) {
@@ -115,11 +123,30 @@ function computeWorldFeatures(seed: number): WorldFeatures {
       radius: rInt(rng, 3, 5),
     });
   }
+  // Near-coast forest clusters — 3 additional patches in the scout-reachable band.
+  // Spread across the x-axis so at least one falls near the landing column on most
+  // seeds.  Radius is smaller (2-3) so the patches are tight — a scout must enter
+  // them, not just graze them from a plain tile.
+  const NEAR_FOREST_COUNT = 3;
+  const NEAR_FOREST_Y_NEAR = COAST_ROW - 30;  // 1469 — closest to the coast
+  const NEAR_FOREST_Y_FAR  = COAST_ROW - 70;  // 1429 — farthest from the coast
+  for (let c = 0; c < NEAR_FOREST_COUNT; c++) {
+    // Spread x in thirds so clusters don't pile up.
+    const xSegment = Math.floor(MAP_WIDTH / NEAR_FOREST_COUNT);
+    forestClusters.push({
+      cx: rInt(rng, c * xSegment + 10, (c + 1) * xSegment - 10),
+      cy: rInt(rng, NEAR_FOREST_Y_FAR, NEAR_FOREST_Y_NEAR),
+      radius: rInt(rng, 2, 3),
+    });
+  }
 
-  // Ruin cluster — mirrors paintRuins in generator.ts
+  // Ruin cluster — mirrors paintRuins in generator.ts.
+  // North = LOW y. COAST_ROW = 1499. Ruins sit ~600-900 tiles north of the
+  // coast so agents must actually range inland to reach them.
+  // ruinCenter.cy = COAST_ROW - (600..900) ≈ 599..899.
   const ruinCenter = {
     cx: rInt(rng, 5, MAP_WIDTH - 6),
-    cy: rInt(rng, 4, 8),
+    cy: rInt(rng, COAST_ROW - 900, COAST_ROW - 600),
     radius: rInt(rng, 2, 4),
   };
 

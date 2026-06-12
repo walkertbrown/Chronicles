@@ -198,6 +198,7 @@ function spawnChild(
       socialNeed: 0.05,
       grief: 0.05,
       longing: 0.05,
+      wanderlust: 0.05,
     },
     traits: blendTraits(mother, father, rng),
     skills: {

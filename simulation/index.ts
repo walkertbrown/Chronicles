@@ -26,6 +26,15 @@ const CHECKPOINT_TICK_INTERVAL = RUN_MODE === 'production' ? 1 : 50;
 // treeline so the watchers appear as ambient background. Lore-consistent — they
 // are "curious about humans from far off" and drift toward population. Once enough
 // are near, the guard short-circuits, so this no-ops on subsequent restarts.
+//
+// Called for BOTH fresh worlds and resumed checkpoints. Fresh worlds already have
+// frontier Conduits spawned nearby (generator.ts), so this typically no-ops.
+// For resumed checkpoints from before the frontier-spawn change, it draws a few
+// Conduits down to sighting range (~30-50 tiles north of camp).
+//
+// BUG FIX (v2): Previous version placed Conduits at cy+12 (SOUTH of the settlement,
+// into the vessel zone). North in this world = lower y. Corrected to cy-12 so
+// watchers are placed NORTH of camp, between the settlement and the interior.
 function nudgeConduitsToTreeline(state: WorldState): void {
   const alive = state.agents.filter((a) => a.alive);
   if (alive.length === 0) return;
@@ -47,23 +56,34 @@ function nudgeConduitsToTreeline(state: WorldState): void {
     .slice(0, WANT - present);
 
   toMove.forEach((c, i) => {
-    // A loose ring ~18 tiles out, biased a touch toward the coast (the treeline
-    // between the camp and the water) — just out of sight, drifting closer.
-    const angle = (i / Math.max(1, toMove.length)) * Math.PI * 2;
+    // A loose arc ~25-35 tiles NORTH of camp (lower y = inland treeline), spread
+    // across a ~60-tile x-span so they aren't all on top of each other.
+    // North = lower y values. cy is ~1499 (coast), so cy - 30 ≈ 1469 = treeline.
+    const angle = (i / Math.max(1, toMove.length)) * Math.PI; // semicircle to the north
+    const radius = 25 + Math.round(Math.random() * 10); // 25-35 tiles out
     c.position = {
-      x: Math.max(10, Math.min(2990, cx + Math.round(Math.cos(angle) * 18))),
-      y: Math.max(1, cy + 12 + Math.round(Math.sin(angle) * 9)),
+      x: Math.max(10, Math.min(2990, cx + Math.round(Math.cos(angle) * 30))),
+      y: Math.max(1, cy - radius + Math.round(Math.sin(angle) * 8)),
     };
   });
 
   if (toMove.length > 0) {
-    console.log(`Drew ${toMove.length} Conduit(s) to the treeline near the settlement.`);
+    console.log(`Drew ${toMove.length} Conduit(s) to the northern treeline near the settlement.`);
   }
 }
 
 async function main(): Promise<void> {
   const saved = await loadCheckpoint(WORLD_ID);
   const state = saved ?? createWorldState(SEED, WORLD_ID);
+
+  if (saved === null) {
+    // Fresh world: frontier Conduits already spawn near the coast in generator.ts,
+    // but run the nudge to confirm at least WANT are within sighting reach and to
+    // place extras if the random spawn happened to miss the landing column.
+    nudgeConduitsToTreeline(state);
+    console.log('Fresh world initialized.');
+  }
+
   if (saved !== null) {
     console.log(`Resuming from tick ${state.tick}, day ${state.day}`);
     // Backfill fields added after this checkpoint was written, so restored
@@ -85,6 +105,12 @@ async function main(): Promise<void> {
       const a = agent as { chronicleChallenge?: number; chronicleFade?: number };
       if (typeof a.chronicleChallenge !== 'number') agent.chronicleChallenge = 0;
       if (typeof a.chronicleFade !== 'number') agent.chronicleFade = 0;
+      // Wanderlust drive added with the exploration/migration update. Backfill
+      // so every restored agent has the field rather than undefined.
+      const drv = agent.drives as typeof agent.drives & { wanderlust?: number };
+      if (typeof drv.wanderlust !== 'number') {
+        drv.wanderlust = 0.05;
+      }
     }
     // The generator now seeds a few treeline watchers near the landing, but this
     // world was generated before that — draw a handful of Conduits down to the
@@ -95,6 +121,20 @@ async function main(): Promise<void> {
     const restoredSource = state.source as WorldState['source'] | undefined;
     if (restoredSource === undefined) {
       state.source = { position: computeSourcePosition(state.seed), control: 0 };
+    }
+    // ONE-TIME SOURCE MIGRATION: The ruin cluster was moved from y≈4-8 to
+    // y≈599-899 (middle-distance north) in the exploration/migration update.
+    // The persisted Source position reflects the old formula (far-north edge,
+    // y≈3-7). Recompute from the new formula and overwrite — idempotent because
+    // once the checkpoint is re-saved the position matches and this no-ops.
+    // Guard: only migrate if the source y is suspiciously far north (< 50),
+    // which is only possible under the old formula. The new positions are ~598-898.
+    if (restoredSource !== undefined && state.source.position.y < 50) {
+      const newPos = computeSourcePosition(state.seed);
+      console.log(
+        `Migrating Source from y=${state.source.position.y} to y=${newPos.y} (ruin zone moved inland)`,
+      );
+      state.source = { position: newPos, control: state.source.control };
     }
   }
   process.on('SIGINT', () => {

@@ -188,6 +188,7 @@ function generateDrives(
       socialNeed: 0.1,
       grief: 0.25,
       longing: 0.05,
+      wanderlust: 0.05,
     };
   }
 
@@ -198,6 +199,7 @@ function generateDrives(
     socialNeed: 0.1,
     grief: 0.1,
     longing: 0.05,
+    wanderlust: role === FoundingRole.Explorer ? 0.20 : 0.05,
   };
 
   switch (role) {

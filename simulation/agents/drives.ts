@@ -2,13 +2,13 @@
 // Updates all agent drives once per tick. Vessel-aware where noted.
 
 import type { Agent, WorldState } from '@shared/types.js';
-import { EventType, StructureType } from '@shared/types.js';
+import { BondType } from '@shared/types.js';
 import {
   illnessFatigueMultiplier,
   illnessHungerMultiplier,
-  hasAdjacentHealer,
 } from './illness.js';
-import { getTile, isVesselZone, manhattanDistance } from '../world/tiles.js';
+import { isVesselZone, manhattanDistance } from '../world/tiles.js';
+import { tickHealthRecovery } from './recovery.js';
 
 // ============================================================
 // CONSTANTS
@@ -38,6 +38,14 @@ const GRIEF_FADE_RATE = 0.001;
 const LONGING_BUILD_RATE = 0.0003; // longing is the desire for a MATE; it builds until discharged by reproduction
 const COMPANY_RADIUS = 3;          // another agent within this range counts as company (for socialNeed)
 
+// Wanderlust — the pull toward the unknown interior.
+// Builds slowly in curious, unbonded agents; near-zero for the settled/old.
+// Bonded agents DECAY wanderlust (see WANDERLUST_DECAY_BONDED below) — no build.
+const WANDERLUST_BUILD_BASE = 0.0006;  // per tick, before curiosity scaling
+const WANDERLUST_YOUTH_BONUS = 0.5;    // multiplier bonus for agents under 30
+const WANDERLUST_OLD_AGE = 50;         // above this age, wanderlust fades toward zero
+const WANDERLUST_OLD_FACTOR = 0.15;    // fraction of normal rate for the old
+
 const STARVATION_BASE_TICKS = 480;
 const STARVATION_ENDURANCE_MODIFIER = 24;
 const STARVATION_MIN_TICKS = 288;
@@ -48,17 +56,13 @@ const FATIGUE_EXPRESSION_DAMPENER = 0.4;
 
 const STARVATION_FEAR_SPIKE = 0.25;
 
-// Health recovery
-const RECOVERY_HUNGER_MAX = 0.5;      // must be below this to heal
-const RECOVERY_FATIGUE_MAX = 0.6;     // must be below this to heal
-const RECOVERY_THREAT_WINDOW = 5;     // ticks — matches hasNearbyThreat in tick.ts
-const RECOVERY_WOUND_WINDOW = 10;     // ticks after violence/animal wound before healing resumes
-const RECOVERY_BASE_RATE = 0.004;     // health restored per tick
-const RECOVERY_ENDURANCE_BONUS = 0.002; // extra rate for high endurance
-const RECOVERY_HEALER_BONUS = 0.002;  // extra rate when adjacent healer present
-const RECOVERY_SHELTER_BONUS = 0.001; // extra rate when on a tile with a completed shelter
-const RECOVERY_ENDURANCE_THRESHOLD = 0.6;
-const RECOVERY_SHELTER_PROGRESS = 1.0; // shelter must be fully built
+// Wanderlust decay: bonded/settled agents bleed off their wanderlust so it does
+// not permanently pin at 1.0 with no outlet (the "stuck state"). The decay rate
+// is slow — a suppressed agent drains ~1.0 to 0 in ~2000 ticks.
+const WANDERLUST_DECAY_BONDED = 0.0005; // per tick when pair-bonded or conduit-bonded
+// Explorer founding role — extra build rate so explorers accrue wanderlust faster
+// and roam more reliably. Youth bonus already applies on top of this.
+const WANDERLUST_EXPLORER_BONUS = 0.6;  // multiplier added to base for explorer-role agents
 
 export interface AgeModifiers {
   fatigueMultiplier: number;
@@ -240,6 +244,52 @@ function tickLonging(agent: Agent): void {
   );
 }
 
+// Wanderlust — build slowly, scaled by curiosity and life circumstances.
+// Near-zero for pair-bonded, conduit-bonded, old, or settled agents;
+// highest for young, curious, unbonded souls. Explorer founding role and youth
+// are build-rate BONUSES (not hard gates); they make those agents roam sooner
+// and more often. Bonded agents actively DECAY wanderlust so it cannot pin at
+// 1.0 forever — the stuck state where half the population silently holds a
+// maxed drive with no outlet. Discharged by reaching new ground (in
+// actionVenture in exploration.ts) rather than here.
+function tickWanderlust(agent: Agent): void {
+  // Ensure the field exists on agents restored from old checkpoints
+  if (typeof agent.drives.wanderlust !== 'number') {
+    agent.drives.wanderlust = 0.05;
+  }
+
+  const hasPairBond = agent.relationships.some(
+    (rel) => rel.bond === BondType.Pair,
+  );
+  const hasConduitBond = agent.conduitId !== null;
+
+  // Bonded agents actively bleed off wanderlust — prevents the permanent max.
+  if (hasPairBond || hasConduitBond) {
+    agent.drives.wanderlust = clamp01(agent.drives.wanderlust - WANDERLUST_DECAY_BONDED);
+    return; // no further build when bonded
+  }
+
+  // Settled/old agents barely feel it
+  const ageFactor =
+    agent.age >= WANDERLUST_OLD_AGE
+      ? WANDERLUST_OLD_FACTOR
+      : agent.age < 30
+        ? 1 + WANDERLUST_YOUTH_BONUS
+        : 1.0;
+
+  // Explorer founding role: accrues faster (they came to find what's out there)
+  const isExplorer = agent.foundingHistory?.role === 'explorer';
+  const explorerFactor = isExplorer ? 1 + WANDERLUST_EXPLORER_BONUS : 1.0;
+
+  const rate =
+    WANDERLUST_BUILD_BASE *
+    agent.traits.curiosity *
+    ageFactor *
+    explorerFactor;
+
+  agent.drives.wanderlust = clamp01(agent.drives.wanderlust + rate);
+}
+
 // Company = at least one other living agent within COMPANY_RADIUS.
 function hasNearbyCompany(agent: Agent, state: WorldState): boolean {
   for (const other of state.agents) {
@@ -256,72 +306,6 @@ function hasNearbyCompany(agent: Agent, state: WorldState): boolean {
     }
   }
   return false;
-}
-
-// ============================================================
-// HEALTH RECOVERY
-// ============================================================
-
-// O(recent events) check: replicates the hasNearbyThreat pattern from tick.ts
-// without importing it (to avoid a circular dependency).
-function hasRecentThreat(agent: Agent, state: WorldState): boolean {
-  for (let i = state.eventLog.length - 1; i >= 0; i--) {
-    const event = state.eventLog[i];
-    if (event === undefined) continue;
-    if (state.tick - event.tick > RECOVERY_THREAT_WINDOW) break;
-    if (
-      event.type === EventType.Conflict &&
-      event.involvedAgents.includes(agent.id)
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function isSheltered(agent: Agent, state: WorldState): boolean {
-  // Near home and the home tile (or current tile) has a completed shelter.
-  const tile = getTile(state.tiles, agent.position.x, agent.position.y);
-  if (tile?.structure !== null && tile?.structure !== undefined) {
-    if (
-      tile.structure.type === StructureType.Shelter &&
-      tile.structure.progress >= RECOVERY_SHELTER_PROGRESS
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function tickHealthRecovery(agent: Agent, state: WorldState): void {
-  // No recovery when sick, hungry, fatigued, threatened, or freshly wounded.
-  if (agent.illnessState !== null) return;
-  if (agent.drives.hunger >= RECOVERY_HUNGER_MAX) return;
-  if (agent.drives.fatigue >= RECOVERY_FATIGUE_MAX) return;
-  if (hasRecentThreat(agent, state)) return;
-
-  const freshViolenceWound =
-    agent.lastViolenceTick !== null &&
-    state.tick - agent.lastViolenceTick <= RECOVERY_WOUND_WINDOW;
-  const freshAnimalWound =
-    agent.animalAttackTick !== null &&
-    state.tick - agent.animalAttackTick <= RECOVERY_WOUND_WINDOW;
-  if (freshViolenceWound || freshAnimalWound) return;
-
-  // All conditions met — heal.
-  let rate = RECOVERY_BASE_RATE;
-
-  if (agent.traits.endurance > RECOVERY_ENDURANCE_THRESHOLD) {
-    rate += RECOVERY_ENDURANCE_BONUS;
-  }
-  if (isSheltered(agent, state)) {
-    rate += RECOVERY_SHELTER_BONUS;
-  }
-  if (hasAdjacentHealer(agent, state)) {
-    rate += RECOVERY_HEALER_BONUS;
-  }
-
-  agent.healthScore = Math.min(1.0, agent.healthScore + rate);
 }
 
 // ============================================================
@@ -342,5 +326,6 @@ export function tickAgentDrives(
   tickSocialNeed(agent, isAtSea, nearCompany);
   tickGrief(agent);
   tickLonging(agent);
+  tickWanderlust(agent);
   tickHealthRecovery(agent, state);
 }
