@@ -249,6 +249,8 @@ export interface Agent {
   discoveredTileIds: string[]        // tile ids visited by this agent. format: "x_y"
   illnessState: IllnessState | null   // null when healthy
   animalAttackTick: number | null    // tick of last animal attack; null if never attacked
+  lastViolenceTick: number | null    // tick of last wound taken in conflict; null if never wounded
+  lastAttackerId: string | null      // id of the agent who last wounded this agent; null if never wounded
 }
 
 // ============================================================

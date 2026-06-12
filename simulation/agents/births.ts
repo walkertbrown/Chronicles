@@ -231,6 +231,8 @@ function spawnChild(
     discoveredTileIds: [],
     illnessState: null,
     animalAttackTick: null,
+    lastViolenceTick: null,
+    lastAttackerId: null,
   };
 
   state.agents.push(child);

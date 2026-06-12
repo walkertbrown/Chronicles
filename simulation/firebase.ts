@@ -78,6 +78,8 @@ export async function writeCheckpoint(state: WorldState): Promise<void> {
         lastAteAtTick: a.lastAteAtTick,
         lastDrankAtTick: a.lastDrankAtTick,
         animalAttackTick: a.animalAttackTick,
+        lastViolenceTick: a.lastViolenceTick,
+        lastAttackerId: a.lastAttackerId,
       })),
       vessel: state.vessel,
       conduits: state.conduits,
@@ -161,6 +163,16 @@ export async function loadCheckpoint(worldId: string): Promise<WorldState | null
     // the seasons. Default to 0 so the clock keeps running.
     if (typeof state.ticksInCurrentSeason !== 'number') {
       state.ticksInCurrentSeason = 0;
+    }
+    // lastViolenceTick and lastAttackerId were added with the lethal-pressure
+    // update. Pre-existing checkpoints won't have them — default to null.
+    for (const agent of state.agents) {
+      if (!('lastViolenceTick' in agent)) {
+        (agent as { lastViolenceTick: null }).lastViolenceTick = null;
+      }
+      if (!('lastAttackerId' in agent)) {
+        (agent as { lastAttackerId: null }).lastAttackerId = null;
+      }
     }
     console.log(`Checkpoint loaded — tick ${state.tick}, day ${state.day}`);
     return state;

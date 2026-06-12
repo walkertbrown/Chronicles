@@ -1108,7 +1108,48 @@ function actionConflict(
     }),
   );
 
+  const winner = agentWon ? agent : targetAgent;
   const loser = agentWon ? targetAgent : agent;
+
+  // ── Violence roll: conflict can wound the loser ──────────────────────────
+  const rivalRel = winner.relationships.find(
+    (rel) => rel.agentId === loser.id && rel.bond === BondType.Rival,
+  );
+  const rivalFeudBonus = rivalRel !== undefined ? 0.20 : 0;
+  const baseViolenceChance =
+    0.10 +
+    Math.max(0, winner.traits.aggression - 0.6) * 0.5 +
+    rivalFeudBonus;
+  const violenceChance = baseViolenceChance * (1 - loser.traits.courage * 0.4);
+
+  if (Math.random() < violenceChance) {
+    const spear = findTool(winner, ItemType.Spear);
+    let damage = (0.12 + Math.random() * 0.10) * (0.8 + winner.traits.aggression * 0.4);
+    if (spear !== undefined) damage *= 1.5;
+    loser.healthScore = Math.max(0, loser.healthScore - damage);
+    loser.lastViolenceTick = state.tick;
+    loser.lastAttackerId = winner.id;
+
+    // ── Killer aftermath: character-dependent ───────────────────────────────
+    if (winner.traits.nobility > 0.5 || winner.traits.aggression < 0.4) {
+      // Haunted path — conscience
+      winner.drives.grief = clamp01(winner.drives.grief + 0.25);
+      winner.traits.aggression = Math.max(0, winner.traits.aggression - 0.05);
+    } else if (winner.traits.aggression > 0.7 && winner.traits.nobility < 0.3) {
+      // Hardened path — emboldened
+      winner.traits.aggression = Math.min(1, winner.traits.aggression + 0.05);
+    } else {
+      // Middle path
+      winner.drives.grief = clamp01(winner.drives.grief + 0.10);
+    }
+    // The act is defining — push a high-weight event onto the winner's
+    // recentEvents so computeRecentEventWeight elevates their significance.
+    // We reuse the existing conflict event that tick.ts logs; no duplicate
+    // event here. Instead we mark chronicleChallenge so the supersession
+    // logic notices them even if not already a thread lead.
+    winner.chronicleChallenge = Math.min(1, winner.chronicleChallenge + 0.15);
+  }
+
   checkWoundInfection(loser, state.tick);
   // Tick loop logs illness events when illness state changes
 
@@ -1373,7 +1414,8 @@ function actionHunt(agent: Agent, state: WorldState): TickOutcome {
 
   const attackChance = 0.08 - agent.skills.hunting * 0.06;
   if (Math.random() < Math.max(0.02, attackChance)) {
-    agent.healthScore = clamp01(agent.healthScore - 0.15);
+    const huntDamage = 0.18 + Math.random() * 0.12; // 0.18–0.30
+    agent.healthScore = Math.max(0, agent.healthScore - huntDamage);
     agent.drives.fear = clamp01(agent.drives.fear + 0.3);
     agent.animalAttackTick = state.tick;
   }
