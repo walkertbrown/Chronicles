@@ -5,10 +5,12 @@
 
 import type {
   Agent,
+  Artifact,
   AgentProximityRecord,
   ConduitBeing,
   SimEvent,
   WorldState,
+  WorldTile,
 } from '@shared/types.js';
 import { EventType } from '@shared/types.js';
 import {
@@ -17,6 +19,7 @@ import {
   getTile,
   isPassable,
   manhattanDistance,
+  markTileDirty,
   stepToward,
 } from '../world/tiles.js';
 
@@ -52,6 +55,9 @@ const BOND_NEAR_DISTANCE = 3;
 const BOND_FAR_DISTANCE = 12;
 const BOND_STRENGTH_GAIN = 0.001;
 const BOND_STRENGTH_DECAY = 0.0005;
+
+// Imprinting
+const IMPRINT_MIN_BOND_STRENGTH = 0.4;
 
 // Proximity history
 const PROXIMITY_TRACKING_RADIUS = 6;
@@ -476,6 +482,7 @@ function updateBondStrength(conduit: ConduitBeing, state: WorldState, events: Si
     conduit.bondedAgentId = null;
     conduit.bondType = null;
     conduit.bondStrength = 0;
+    conduit.heldArtifactId = null; // release artifact hold on bond break; imprint/legible flags remain
     return;
   }
 
@@ -488,6 +495,73 @@ function updateBondStrength(conduit: ConduitBeing, state: WorldState, events: Si
   } else if (dist > BOND_FAR_DISTANCE) {
     conduit.bondStrength = clamp01(conduit.bondStrength - BOND_STRENGTH_DECAY);
   }
+}
+
+// ============================================================
+// IMPRINTING
+// ============================================================
+
+function executeImprint(
+  conduit: ConduitBeing,
+  agent: Agent,
+  artifact: Artifact,
+  tile: WorldTile,
+  state: WorldState,
+  events: SimEvent[],
+): void {
+  artifact.imprinted = true;
+  artifact.legible = true;
+  conduit.heldArtifactId = artifact.id;
+  markTileDirty(state.tiles, tile.x, tile.y);
+
+  const lightDescriptions = [
+    `The creature went still beside ${agent.name} ${agent.familyName}. Not looking at the object — receiving it. Something passed that no one watching could follow.`,
+    `${agent.name} ${agent.familyName} did not see the creature touch it. Afterward the object felt different in the hand. The creature did not look away from it.`,
+    `The luminous being leaned close to what ${agent.name} ${agent.familyName} carried. The air around them did not move. It felt right in a way that had no name.`,
+  ];
+  const darkDescriptions = [
+    `The creature fixed on what ${agent.name} ${agent.familyName} carried and did not move for a long time. Those nearby felt something open that should not have opened.`,
+    `Something in what ${agent.name} ${agent.familyName} held answered the creature's attention. The object had not changed. The wrongness was in how the creature knew it.`,
+    `The creature recognized the thing ${agent.name} ${agent.familyName} carried. That was clear. What woke in it at that moment was not.`,
+  ];
+  const descs = conduit.bondType === 'light' ? lightDescriptions : darkDescriptions;
+  const description = descs[Math.floor(Math.random() * descs.length)] ?? descs[0]!;
+
+  const event: SimEvent = {
+    id: `imprint_${conduit.id}_${artifact.id}_${state.tick}`,
+    tick: state.tick,
+    day: state.day,
+    type: EventType.ArtifactImprinted,
+    involvedAgents: [agent.id],
+    location: { x: tile.x, y: tile.y },
+    description,
+    narrativeWeight: 0.88,
+    threadRelevant: [agent.familyName],
+  };
+
+  events.push(event);
+}
+
+function maybeImprint(
+  conduit: ConduitBeing,
+  state: WorldState,
+  events: SimEvent[],
+): void {
+  // Four trigger conditions must all hold
+  if (conduit.bondedAgentId === null) return;
+  if (conduit.heldArtifactId !== null) return;
+  if (conduit.bondStrength < IMPRINT_MIN_BOND_STRENGTH) return;
+
+  const agent = findAgentById(state, conduit.bondedAgentId);
+  if (agent === undefined || !agent.alive) return;
+
+  const tile = getTile(state.tiles, agent.position.x, agent.position.y);
+  if (tile === undefined) return;
+
+  const artifact = tile.artifacts.find((a) => a.discovered === true && a.imprinted !== true);
+  if (artifact === undefined) return;
+
+  executeImprint(conduit, agent, artifact, tile, state, events);
 }
 
 // ============================================================
@@ -529,6 +603,7 @@ export function tickAllConduits(state: WorldState): SimEvent[] {
     updateProximityHistory(conduit, state);
     maybeLogSighting(conduit, state, newEvents);
     updateBondStrength(conduit, state, newEvents);
+    maybeImprint(conduit, state, newEvents);
 
     // Check for new bond — only unbonded Conduits
     if (conduit.bondedAgentId === null) {
