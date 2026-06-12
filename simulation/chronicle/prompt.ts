@@ -60,6 +60,7 @@ function appendConditionNarratives(
     a.hungerNarrative,
     a.sicknessNarrative,
     a.healthNarrative,
+    a.pregnancyNarrative,
   ].filter((n) => n.length > 0);
 
   for (const narrative of narratives) {

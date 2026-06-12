@@ -694,6 +694,7 @@ export function initializeAgents(
       animalAttackTick: null,
       lastViolenceTick: null,
       lastAttackerId: null,
+      pregnancy: null,
     };
   });
 

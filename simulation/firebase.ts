@@ -2,7 +2,7 @@ import admin from 'firebase-admin';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ChronicleEntry, WorldState } from '@shared/types.js';
+import type { Agent, ChronicleEntry, WorldState } from '@shared/types.js';
 import { TileCacheImpl } from './world/tileCache.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -80,6 +80,7 @@ export async function writeCheckpoint(state: WorldState): Promise<void> {
         animalAttackTick: a.animalAttackTick,
         lastViolenceTick: a.lastViolenceTick,
         lastAttackerId: a.lastAttackerId,
+        pregnancy: a.pregnancy ?? null,
       })),
       vessel: state.vessel,
       conduits: state.conduits,
@@ -164,14 +165,18 @@ export async function loadCheckpoint(worldId: string): Promise<WorldState | null
     if (typeof state.ticksInCurrentSeason !== 'number') {
       state.ticksInCurrentSeason = 0;
     }
-    // lastViolenceTick and lastAttackerId were added with the lethal-pressure
-    // update. Pre-existing checkpoints won't have them — default to null.
+    // lastViolenceTick/lastAttackerId (lethal-pressure) and pregnancy (pair-bond
+    // recalibration) were added after the live world deployed. Pre-existing
+    // checkpoints won't have them — default all loaded agents so resume is clean.
     for (const agent of state.agents) {
       if (!('lastViolenceTick' in agent)) {
         (agent as { lastViolenceTick: null }).lastViolenceTick = null;
       }
       if (!('lastAttackerId' in agent)) {
         (agent as { lastAttackerId: null }).lastAttackerId = null;
+      }
+      if (!('pregnancy' in agent)) {
+        (agent as { pregnancy: null }).pregnancy = null;
       }
     }
     console.log(`Checkpoint loaded — tick ${state.tick}, day ${state.day}`);

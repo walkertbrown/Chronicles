@@ -1,5 +1,7 @@
 // simulation/agents/births.ts
 // Pair-bond reproduction — once per simulated day.
+// Conception logic and gestation/delivery live in gestation.ts.
+// This file owns: eligibility checks, spawnChild, and the daily birth tick.
 
 import type { Agent, Traits, WorldState } from '@shared/types.js';
 import { BondType } from '@shared/types.js';
@@ -7,12 +9,12 @@ import { logBirthEvent } from '../events/log.js';
 import { TICKS_PER_DAY } from './drives.js';
 import { generateChildName } from './initializer.js';
 import { manhattanDistance } from '../world/tiles.js';
+import { tickConception, tickDeliveries } from './gestation.js';
 
 // ============================================================
 // CONSTANTS
 // ============================================================
 
-const BIRTH_CHANCE_PER_DAY = 0.10;
 const BIRTH_LONGING_THRESHOLD = 0.45;
 const BIRTH_PROXIMITY_RADIUS = 7;   // parents need to be together at camp (camp-scale), not the same tile
 const BIRTH_MAX_HUNGER = 0.5;       // too hungry to bear/raise a child — a starving time halts births
@@ -21,8 +23,12 @@ const BIRTH_MAX_MALE_AGE = 60;
 const BIRTH_MIN_AGE = 16;
 const TRAIT_MUTATION_RANGE = 0.08;
 const MOTHER_GRIEF_SPIKE = 0.1;
-const PARENT_LONGING_RESET = 0.1;
 const CHILD_SKILL_BASE = 0.02;
+
+// Exported so gestation.ts can reset longing at conception
+export const PARENT_LONGING_RESET = 0.1;
+
+export { BIRTH_LONGING_THRESHOLD, BIRTH_PROXIMITY_RADIUS, BIRTH_MAX_HUNGER, BIRTH_MAX_FEMALE_AGE, BIRTH_MAX_MALE_AGE, BIRTH_MIN_AGE };
 
 const TRAIT_KEYS: Array<keyof Traits> = [
   'curiosity',
@@ -48,7 +54,7 @@ function pairKey(agentIdA: string, agentIdB: string): string {
   return agentIdA < agentIdB ? `${agentIdA}|${agentIdB}` : `${agentIdB}|${agentIdA}`;
 }
 
-function findAgent(state: WorldState, agentId: string): Agent | undefined {
+export function findAgent(state: WorldState, agentId: string): Agent | undefined {
   return state.agents.find((agent) => agent.id === agentId);
 }
 
@@ -65,7 +71,7 @@ function addOccupant(
   }
 }
 
-function collectUniquePairs(state: WorldState): Array<[Agent, Agent]> {
+export function collectUniquePairs(state: WorldState): Array<[Agent, Agent]> {
   const seen = new Set<string>();
   const pairs: Array<[Agent, Agent]> = [];
 
@@ -89,7 +95,7 @@ function collectUniquePairs(state: WorldState): Array<[Agent, Agent]> {
   return pairs;
 }
 
-function resolveParents(
+export function resolveParents(
   agentA: Agent,
   agentB: Agent,
 ): { mother: Agent; father: Agent } | null {
@@ -106,7 +112,7 @@ function resolveParents(
   return { mother, father };
 }
 
-function isEligiblePair(mother: Agent, father: Agent): boolean {
+export function isEligiblePair(mother: Agent, father: Agent): boolean {
   if (
     mother.age < BIRTH_MIN_AGE ||
     mother.age > BIRTH_MAX_FEMALE_AGE ||
@@ -163,22 +169,34 @@ function blendTraits(mother: Agent, father: Agent, rng: () => number): Traits {
 
 // ============================================================
 // CHILD SPAWN
+// Called by gestation.ts at delivery. Takes stored fatherId/fatherName
+// so it works even if the father died during gestation.
 // ============================================================
 
-function spawnChild(
+export function spawnChild(
   state: WorldState,
   mother: Agent,
-  father: Agent,
+  fatherId: string,
+  fatherName: string,
+  fatherObj: Agent | undefined,  // may be undefined if father died during gestation
   rng: () => number,
 ): Agent {
   const gender: Agent['gender'] = rng() < 0.5 ? 'male' : 'female';
   const { name, familyName } = generateChildName(
     mother.id,
-    father.id,
+    fatherId,
     gender,
     state.agents,
     rng,
   );
+
+  // Blend traits using whichever father object we have. If father is gone,
+  // use mother's traits doubled (mild genetic approximation).
+  const effectiveFather: Agent = fatherObj ?? {
+    ...mother,
+    id: fatherId,
+    name: fatherName,
+  };
 
   const child: Agent = {
     id: `agent_${state.agents.length}`,
@@ -187,7 +205,7 @@ function spawnChild(
     gender,
     age: 0,
     healthScore: 1.0,
-    generation: Math.max(mother.generation, father.generation) + 1,
+    generation: Math.max(mother.generation, fatherObj?.generation ?? mother.generation) + 1,
     alive: true,
     position: { x: mother.position.x, y: mother.position.y },
     home: { x: mother.home?.x ?? mother.position.x, y: mother.home?.y ?? mother.position.y },
@@ -200,7 +218,7 @@ function spawnChild(
       longing: 0.05,
       wanderlust: 0.05,
     },
-    traits: blendTraits(mother, father, rng),
+    traits: blendTraits(mother, effectiveFather, rng),
     skills: {
       hunting: CHILD_SKILL_BASE,
       gathering: CHILD_SKILL_BASE,
@@ -212,7 +230,7 @@ function spawnChild(
     relationships: [],
     lineage: {
       motherId: mother.id,
-      fatherId: father.id,
+      fatherId: fatherId,
       children: [],
     },
     foundingHistory: null,
@@ -234,18 +252,23 @@ function spawnChild(
     animalAttackTick: null,
     lastViolenceTick: null,
     lastAttackerId: null,
+    pregnancy: null,
   };
 
   state.agents.push(child);
   mother.lineage.children.push(child.id);
-  father.lineage.children.push(child.id);
+  // Only push to father's children list if the father object still exists
+  if (fatherObj !== undefined) {
+    fatherObj.lineage.children.push(child.id);
+  }
   addOccupant(state, mother.position.x, mother.position.y, child.id);
 
+  // Grief spike for mother at birth — the exhaustion and vulnerability of delivery
   mother.drives.grief = clamp01(mother.drives.grief + MOTHER_GRIEF_SPIKE);
-  mother.drives.longing = PARENT_LONGING_RESET;
-  father.drives.longing = PARENT_LONGING_RESET;
+  // Note: longing reset for both parents moved to conception (gestation.ts),
+  // so they don't seek new mates during pregnancy.
 
-  logBirthEvent(state, child, mother.id, father.id);
+  logBirthEvent(state, child, mother.id, fatherId);
 
   return child;
 }
@@ -257,14 +280,9 @@ function spawnChild(
 export function tickBirths(state: WorldState, rng: () => number): void {
   if (state.tick % TICKS_PER_DAY !== 0) return;
 
-  for (const [agentA, agentB] of collectUniquePairs(state)) {
-    const parents = resolveParents(agentA, agentB);
-    if (parents === null) continue;
+  // Conception pass: eligible pairs who pass the daily roll conceive
+  tickConception(state, rng);
 
-    const { mother, father } = parents;
-    if (!isEligiblePair(mother, father)) continue;
-    if (rng() >= BIRTH_CHANCE_PER_DAY) continue;
-
-    spawnChild(state, mother, father, rng);
-  }
+  // Delivery pass: mothers whose gestation period is complete give birth
+  tickDeliveries(state, rng);
 }

@@ -81,6 +81,7 @@ export enum EventType {
   ConduitBondBroken = 'conduit_bond_broken',  // Bond broken by agent death
   SourceAwakened = 'source_awakened',         // The source opened for the first time (light or dark) — climactic
   SourceShifted = 'source_shifted',           // Control of the source flipped between light and dark
+  Conception = 'conception',                  // A pair bond conceives — begins the gestation arc
 }
 
 // ============================================================
@@ -262,6 +263,11 @@ export interface Agent {
   animalAttackTick: number | null    // tick of last animal attack; null if never attacked
   lastViolenceTick: number | null    // tick of last wound taken in conflict; null if never wounded
   lastAttackerId: string | null      // id of the agent who last wounded this agent; null if never wounded
+  pregnancy: {
+    fatherId: string
+    fatherName: string
+    conceivedTick: number
+  } | null                           // null when not pregnant; set at conception, cleared at delivery
 }
 
 // ============================================================
