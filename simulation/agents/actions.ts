@@ -7,6 +7,7 @@ import { fatigueModifier } from './drives.js';
 import { isSick, illnessSeverity, illnessSkillMultiplier, checkWoundInfection } from './illness.js';
 import { OutcomeType, type TickOutcome } from './outcomes.js';
 import { getRelationship, socialRestorationValue } from './relationships.js';
+import { logEvent } from '../events/log.js';
 import { COAST_ROW } from '../world/generator.js';
 import {
   findBestWaterTile,
@@ -1024,6 +1025,19 @@ function actionExplore(agent: Agent, state: WorldState): TickOutcome {
   const artifact = destination.artifacts.find((item) => !item.discovered);
   if (artifact !== undefined) {
     artifact.discovered = true;
+    markTileDirty(state.tiles, destination.x, destination.y); // persist discovered flag through checkpoint restore
+    // Surface it in the chronicle as an uncanny, unexplained find. Without this
+    // SimEvent the discovery only ever touched the finder's traits and never
+    // reached the page — artifacts were invisible to the story.
+    const descriptor = artifact.descriptor ?? 'something old and made';
+    logEvent(
+      state,
+      EventType.ArtifactFound,
+      [agent.id],
+      { x: destination.x, y: destination.y },
+      `${agent.name} ${agent.familyName} found ${descriptor} among the ruins.`,
+      [agent.familyName],
+    );
     return makeOutcome(agent, {
       type: OutcomeType.FoundArtifact,
       success: true,

@@ -552,6 +552,19 @@ appears, treat it as a major narrative moment. A light bond is wonder and
 recognition arriving quietly. A dark bond shifts the register — something is
 wrong before the chronicle names it. A broken bond is grief.
 
+Artifacts: when someone finds an ancient artifact, render it as uncanny and
+unexplained. These people have no word for what it is and no way to know what
+it does — do not supply one. Describe only its surface, the way it sits wrong
+in the hand or the eye, and let the not-knowing stand. The reader may sense
+more than the finder; never close that gap on the page.
+
+Artifact imprinting: when a person's luminous companion fixes on an artifact
+they hold, render it as a charged, wordless recognition — the creature knows
+this object in a way no one present can follow. A light bond reads as awe and
+rightness; a dark bond reads as the object waking to something that should have
+stayed asleep. Never state what the artifact is, what it does, or what the
+creature understood.
+
 ${previousPageBlock}---
 
 ${formatWorldHeader(packages)}

@@ -1,6 +1,6 @@
 import seedrandom from 'seedrandom';
 import type { Artifact, Resource, Structure, TileCache, TileCacheData, WorldTile } from '@shared/types.js';
-import { Terrain } from '@shared/types.js';
+import { ArtifactKind, Terrain } from '@shared/types.js';
 import {
   MAP_WIDTH,
   MAP_HEIGHT,
@@ -234,6 +234,39 @@ function makeTileResources(terrain: Terrain, rng: RNG): WorldTile['resources'] {
 // ARTIFACT PLACEMENT
 // ============================================================
 
+// The evocative SURFACE of an artifact — what it looks like to someone who has
+// no word for it. Never describes meaning or function; that stays sealed.
+const ARTIFACT_DESCRIPTORS: Record<ArtifactKind, string[]> = {
+  [ArtifactKind.Tool]: [
+    'a hand-shaped implement of a metal no one can name',
+    'a worn handle fitted for a grip that is not quite a human hand',
+    'a blade that has not dulled in all the years it has lain here',
+    'a fitted thing of two parts that move against each other and still hold oil',
+  ],
+  [ArtifactKind.Record]: [
+    'a shard cut edge to edge in small precise marks',
+    'a tablet covered in a writing no living tongue reads',
+    'a fragment whose lines are too even to be ornament',
+    'a sheet of something thin and unbending, marked in rows that mean to be read',
+  ],
+  [ArtifactKind.Relic]: [
+    'a smooth dark disc, faintly warm to the touch',
+    'an object that holds the light wrong',
+    'a thing that has no name in any language they carry',
+    'a small heaviness that does not match its size',
+  ],
+};
+
+// Deeper ground (higher ancient density) yields the stranger, more meaningful
+// finds — records and relics — while tools turn up more in the shallows.
+function pickArtifactKind(rng: RNG, ancientDensity: number): ArtifactKind {
+  const recordOrRelicChance = 0.35 + ancientDensity * 0.4; // ~0.35 → ~0.75
+  if (rng() < recordOrRelicChance) {
+    return rng() < 0.5 ? ArtifactKind.Record : ArtifactKind.Relic;
+  }
+  return ArtifactKind.Tool;
+}
+
 function placeArtifacts(
   terrain: Terrain,
   x: number,
@@ -245,11 +278,19 @@ function placeArtifacts(
   const count = rng() < ancientDensity * 0.8
     ? rInt(rng, 1, 3)
     : rng() < 0.3 ? 1 : 0;
-  return Array.from({ length: count }, (_, i) => ({
-    id: `artifact_${x}_${y}_${i}`,
-    discovered: false,
-    imprinted: false,
-  }));
+  return Array.from({ length: count }, (_, i) => {
+    const kind = pickArtifactKind(rng, ancientDensity);
+    const descriptors = ARTIFACT_DESCRIPTORS[kind];
+    const descriptor = descriptors[rInt(rng, 0, descriptors.length - 1)] ?? descriptors[0]!;
+    return {
+      id: `artifact_${x}_${y}_${i}`,
+      discovered: false,
+      imprinted: false,
+      kind,
+      descriptor,
+      legible: false,
+    };
+  });
 }
 
 // ============================================================
