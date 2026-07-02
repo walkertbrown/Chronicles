@@ -1,4 +1,5 @@
 import admin from 'firebase-admin';
+import { gzipSync, gunzipSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -93,8 +94,25 @@ export async function writeCheckpoint(state: WorldState): Promise<void> {
       lastSummaryGeneratedAt: state.lastSummaryGeneratedAt,
       eventLog: state.eventLog.slice(-500),
     };
-    await doc.set(checkpoint);
-    console.log(`Checkpoint written at tick ${state.tick}`);
+    // The structured checkpoint outgrew Firestore's per-document index-entry
+    // limit ("too many index entries") as agents explored more tiles. Store the
+    // whole state as ONE gzipped JSON blob instead: bytes fields produce no
+    // per-key index entries, and compression keeps us far under the 1MB doc cap.
+    // A few scalar fields stay top-level so the doc remains inspectable.
+    const blob = gzipSync(Buffer.from(JSON.stringify(checkpoint)));
+    await doc.set({
+      format: 'gzip-v1',
+      worldId: state.worldId,
+      tick: state.tick,
+      day: state.day,
+      year: state.year,
+      season: state.season,
+      population: checkpoint.population,
+      lastCheckpoint: checkpoint.lastCheckpoint,
+      blobBytes: blob.length,
+      blob,
+    });
+    console.log(`Checkpoint written at tick ${state.tick} (${blob.length} bytes gzipped)`);
   } catch (err) {
     console.error('Checkpoint write failed:', err);
   }
@@ -150,7 +168,15 @@ export async function loadCheckpoint(worldId: string): Promise<WorldState | null
       console.log('No checkpoint found — starting fresh.');
       return null;
     }
-    const raw = doc.data() as Omit<WorldState, 'tiles'> & { tiles: import('@shared/types.js').TileCacheData };
+    const stored = doc.data() as { format?: string; blob?: Uint8Array | Buffer };
+    // gzip-v1 checkpoints hold the full state as one compressed JSON blob;
+    // older checkpoints are the structured document itself. Support both so the
+    // pre-existing live world restores cleanly on first boot after this change.
+    const raw = (
+      stored.format === 'gzip-v1' && stored.blob
+        ? JSON.parse(gunzipSync(Buffer.from(stored.blob as Uint8Array)).toString('utf-8'))
+        : stored
+    ) as Omit<WorldState, 'tiles'> & { tiles: import('@shared/types.js').TileCacheData };
     const tiles = TileCacheImpl.deserialize(raw.tiles);
     const state = { ...raw, tiles } as WorldState;
     // Checkpoints written before lastChronicleDay existed have no value for it.
