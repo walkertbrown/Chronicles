@@ -63,6 +63,9 @@ export class SeedMetricsCollector {
   private minPopulation = Infinity;
   private readonly populationSamples: number[] = [];
 
+  private artifactsFound = 0;
+  private firstArtifactFoundDay: number | null = null;
+
   constructor(seed: number) {
     this.seed = seed;
   }
@@ -151,6 +154,24 @@ export class SeedMetricsCollector {
     this.latestPairCount = seenPair.size;
     this.latestKinCount = seenKin.size;
     this.latestRivalCount = seenRival.size;
+
+    // Artifact discoveries: scan tile state directly (ground truth) rather than
+    // EventType.ArtifactFound. That event is only logged from the idle-curiosity
+    // path (agents/actions.ts actionExplore) — the wanderlust-foray path
+    // (agents/exploration.ts actionVenture) also discovers artifacts but does
+    // NOT log an event for it, so an event-only count would silently undercount.
+    // `artifact.discovered` never resets once set, so a periodic scan of the
+    // (small, sparse) dirty-tile set gives the true cumulative total.
+    let discoveredCount = 0;
+    for (const tile of state.tiles.getDirtyTiles().values()) {
+      for (const artifact of tile.artifacts) {
+        if (artifact.discovered) discoveredCount += 1;
+      }
+    }
+    this.artifactsFound = discoveredCount;
+    if (discoveredCount > 0 && this.firstArtifactFoundDay === null) {
+      this.firstArtifactFoundDay = day;
+    }
   }
 
   finalize(): SeedMetrics {
@@ -174,6 +195,8 @@ export class SeedMetricsCollector {
       peakPopulation: this.peakPopulation,
       minPopulation: this.minPopulation === Infinity ? this.finalPopulation : this.minPopulation,
       illnessEvents: this.illnessEvents,
+      firstArtifactFoundDay: this.firstArtifactFoundDay,
+      artifactsFound: this.artifactsFound,
       populationSamples: this.populationSamples,
     };
   }

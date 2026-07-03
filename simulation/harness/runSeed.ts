@@ -13,12 +13,17 @@ import { silenceConsole, restoreConsole } from './consoleSilence.js';
 import { newEventsThisTick } from './eventScan.js';
 import { SeedMetricsCollector } from './metrics.js';
 import { FantasyMetricsCollector } from './fantasyMetrics.js';
+import { shouldFakeChronicle, appendFakeChroniclePage } from './fakeChronicle.js';
 import type { ConstantOverride, SeedResult } from './types.js';
 
 export interface RunSeedOptions {
   seed: number;
   days: number;
   keepFantasy: boolean;
+  // Runs the real chronicle selection logic (packThreads) at production
+  // cadence with placeholder prose — no LLM call — so the light Conduit-bond
+  // path (gated on chronicle mentions) becomes reachable. See fakeChronicle.ts.
+  fakeChronicle: boolean;
   sampleEveryTicks: number;
   // Which constant overrides were in effect when this seed ran (caller applies
   // them to RELATIONSHIP_CONSTANTS/CONDUIT_CONSTANTS before calling runSeed —
@@ -27,7 +32,7 @@ export interface RunSeedOptions {
 }
 
 export function runSeed(options: RunSeedOptions): SeedResult {
-  const { seed, days, keepFantasy, sampleEveryTicks, combination } = options;
+  const { seed, days, keepFantasy, fakeChronicle, sampleEveryTicks, combination } = options;
   const worldId = `windtunnel_${seed}`;
 
   const state: WorldState = createWorldState(seed, worldId);
@@ -54,6 +59,10 @@ export function runSeed(options: RunSeedOptions): SeedResult {
       if (fantasy !== null) {
         fantasy.onEvents(newEvents, summary.day);
         fantasy.onTick(state); // pilgrimage detection needs tick, not sample, granularity
+      }
+
+      if (fakeChronicle && shouldFakeChronicle(state)) {
+        appendFakeChroniclePage(state);
       }
 
       if (state.tick % sampleEveryTicks === 0) {

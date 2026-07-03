@@ -21,6 +21,7 @@ export interface CliOptions {
   seeds: number[];
   days: number;
   keepFantasy: boolean;
+  fakeChronicle: boolean;
   sampleEveryTicks: number;
   csv: boolean;
   setOverrides: ConstantOverride[];
@@ -72,6 +73,9 @@ export interface SeedMetrics {
 
   illnessEvents: number;
 
+  firstArtifactFoundDay: number | null;
+  artifactsFound: number;
+
   populationSamples: number[]; // one entry per sample point, for an optional sparkline
 }
 
@@ -90,6 +94,8 @@ export interface FantasySeedMetrics {
   sourceFlips: number;
 
   pilgrimages: number; // distinct agents who ever heeded the source's call
+
+  artifactsImprinted: number; // EventType.ArtifactImprinted — requires a bonded Conduit
 }
 
 // ============================================================

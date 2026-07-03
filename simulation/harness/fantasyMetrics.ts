@@ -38,6 +38,7 @@ export class FantasyMetricsCollector {
   private sourceFlips = 0;
   private readonly sourceControlSamples: number[] = [];
   private readonly pilgrimAgentIds = new Set<string>();
+  private artifactsImprinted = 0;
 
   /** Call once per tick with exactly that tick's newly-appended events. */
   onEvents(events: SimEvent[], day: number): void {
@@ -63,6 +64,9 @@ export class FantasyMetricsCollector {
           break;
         case EventType.SourceShifted:
           this.sourceFlips += 1;
+          break;
+        case EventType.ArtifactImprinted:
+          this.artifactsImprinted += 1;
           break;
         default:
           break;
@@ -95,6 +99,7 @@ export class FantasyMetricsCollector {
       sourceControlSamples: this.sourceControlSamples,
       sourceFlips: this.sourceFlips,
       pilgrimages: this.pilgrimAgentIds.size,
+      artifactsImprinted: this.artifactsImprinted,
     };
   }
 }

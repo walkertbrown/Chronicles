@@ -22,11 +22,11 @@ function statLine(label: string, stat: NumericStat, digits = 0): string {
 const SEED_COLUMNS = [
   'seed', 'pairDay', 'pairs', 'kin', 'rival', 'concDay', 'conc',
   'birthDay', 'births', 'deaths', 'conflicts', 'migr', 'minY',
-  'finalPop', 'peakPop', 'minPop', 'illness',
+  'finalPop', 'peakPop', 'minPop', 'illness', 'artDay', 'artifacts',
 ] as const;
 
 const FANTASY_SEED_COLUMNS = [
-  'sightDay', 'bondDay', 'nature', 'awakeDay', 'ctrlFinal', 'flips', 'pilgrims',
+  'sightDay', 'bondDay', 'nature', 'awakeDay', 'ctrlFinal', 'flips', 'pilgrims', 'imprinted',
 ] as const;
 
 function seedRow(result: SeedResult): string[] {
@@ -38,6 +38,7 @@ function seedRow(result: SeedResult): string[] {
     fmt(m.firstBirthDay), String(m.births), String(m.deaths), String(m.conflicts),
     String(m.migrations), fmt(m.maxDistanceNorth),
     String(m.finalPopulation), String(m.peakPopulation), String(m.minPopulation), String(m.illnessEvents),
+    fmt(m.firstArtifactFoundDay), String(m.artifactsFound),
   ];
   if (result.fantasy === null) return base;
   const f = result.fantasy;
@@ -45,6 +46,7 @@ function seedRow(result: SeedResult): string[] {
     ...base,
     fmt(f.firstConduitSightingDay), fmt(f.firstConduitBondDay), f.firstConduitBondNature ?? '–',
     fmt(f.sourceAwakenedDay), fmt(f.sourceControlFinal, 2), String(f.sourceFlips), String(f.pilgrimages),
+    String(f.artifactsImprinted),
   ];
 }
 
@@ -84,6 +86,8 @@ function formatAggregateBlock(stats: AggregateStats, fantasyStats: FantasyAggreg
     statLine('peakPopulation', stats.peakPopulation),
     statLine('minPopulation', stats.minPopulation),
     statLine('illnessEvents', stats.illnessEvents),
+    statLine('firstArtifactFoundDay', stats.firstArtifactFoundDay),
+    statLine('artifactsFound', stats.artifactsFound),
   ];
 
   if (fantasyStats !== null) {
@@ -97,6 +101,7 @@ function formatAggregateBlock(stats: AggregateStats, fantasyStats: FantasyAggreg
       statLine('sourceControlFinal', fantasyStats.sourceControlFinal, 2),
       statLine('sourceFlips', fantasyStats.sourceFlips),
       statLine('pilgrimages', fantasyStats.pilgrimages),
+      statLine('artifactsImprinted', fantasyStats.artifactsImprinted),
     );
   }
 
@@ -117,11 +122,15 @@ export function formatFullReport(
   stats: AggregateStats,
   fantasyStats: FantasyAggregateStats | null,
   gateVerdict: GateVerdictLine[],
-  meta: { days: number; keepFantasy: boolean; combinationLabel?: string },
+  meta: { days: number; keepFantasy: boolean; fakeChronicle?: boolean; combinationLabel?: string },
 ): string {
+  const flags = [
+    meta.keepFantasy ? '(fantasy kept)' : '(fantasy stripped)',
+    meta.fakeChronicle === true ? '(fake-chronicle)' : null,
+  ].filter((f): f is string => f !== null).join(' ');
   const header = meta.combinationLabel
-    ? `=== ${results.length} seeds × ${meta.days} days ${meta.keepFantasy ? '(fantasy kept)' : '(fantasy stripped)'} — ${meta.combinationLabel} ===`
-    : `=== ${results.length} seeds × ${meta.days} days ${meta.keepFantasy ? '(fantasy kept)' : '(fantasy stripped)'} ===`;
+    ? `=== ${results.length} seeds × ${meta.days} days ${flags} — ${meta.combinationLabel} ===`
+    : `=== ${results.length} seeds × ${meta.days} days ${flags} ===`;
 
   return [
     header,

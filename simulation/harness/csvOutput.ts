@@ -47,11 +47,12 @@ function buildCsv(results: SeedResult[]): string {
     'deaths', 'deaths_starvation', 'deaths_violence', 'deaths_predator', 'deaths_illness', 'deaths_other',
     'conflicts', 'resolutions', 'migrations', 'maxDistanceNorth',
     'finalPopulation', 'peakPopulation', 'minPopulation', 'illnessEvents',
+    'firstArtifactFoundDay', 'artifactsFound',
   ];
   if (keepFantasy) {
     header.push(
       'firstConduitSightingDay', 'firstConduitBondDay', 'firstConduitBondNature',
-      'sourceAwakenedDay', 'sourceControlFinal', 'sourceFlips', 'pilgrimages',
+      'sourceAwakenedDay', 'sourceControlFinal', 'sourceFlips', 'pilgrimages', 'artifactsImprinted',
     );
   }
 
@@ -70,12 +71,14 @@ function buildCsv(results: SeedResult[]): string {
       m.deathBreakdown.predator, m.deathBreakdown.illness, m.deathBreakdown.other,
       m.conflicts, m.resolutions, m.migrations, m.maxDistanceNorth ?? '',
       m.finalPopulation, m.peakPopulation, m.minPopulation, m.illnessEvents,
+      m.firstArtifactFoundDay ?? '', m.artifactsFound,
     ];
     if (keepFantasy && r.fantasy !== null) {
       base.push(
         r.fantasy.firstConduitSightingDay ?? '', r.fantasy.firstConduitBondDay ?? '',
         r.fantasy.firstConduitBondNature ?? '', r.fantasy.sourceAwakenedDay ?? '',
         r.fantasy.sourceControlFinal, r.fantasy.sourceFlips, r.fantasy.pilgrimages,
+        r.fantasy.artifactsImprinted,
       );
     }
     return base.map((cell) => csvCell(cell)).join(',');

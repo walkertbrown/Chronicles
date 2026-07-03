@@ -42,17 +42,21 @@ function runCombination(
   seeds: number[],
   days: number,
   keepFantasy: boolean,
+  fakeChronicle: boolean,
   sampleEveryTicks: number,
 ): SeedResult[] {
   resetAllConstants();
   for (const o of combination) setConstant(o.key, o.value);
-  return seeds.map((seed) => runSeed({ seed, days, keepFantasy, sampleEveryTicks, combination }));
+  return seeds.map((seed) =>
+    runSeed({ seed, days, keepFantasy, fakeChronicle, sampleEveryTicks, combination }),
+  );
 }
 
 function reportFor(
   results: SeedResult[],
   days: number,
   keepFantasy: boolean,
+  fakeChronicle: boolean,
   combination: ConstantOverride[],
 ): string {
   const metricsList = results.map((r) => r.metrics);
@@ -63,6 +67,7 @@ function reportFor(
   return formatFullReport(results, stats, fantasyStats, gateVerdict, {
     days,
     keepFantasy,
+    fakeChronicle,
     ...(combinationLabel(combination) !== undefined
       ? { combinationLabel: combinationLabel(combination)! }
       : {}),
@@ -93,10 +98,13 @@ function main(): void {
       options.seeds,
       options.days,
       options.keepFantasy,
+      options.fakeChronicle,
       options.sampleEveryTicks,
     );
     allResults.push(...results);
-    reportSections.push(reportFor(results, options.days, options.keepFantasy, combination));
+    reportSections.push(
+      reportFor(results, options.days, options.keepFantasy, options.fakeChronicle, combination),
+    );
   }
 
   resetAllConstants(); // leave the process in a clean state regardless of what ran last

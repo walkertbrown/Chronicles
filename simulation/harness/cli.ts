@@ -3,8 +3,13 @@
 // argv -> CliOptions.
 //
 //   node dist/simulation/harness/run.js --seeds 20 --days 365 \
-//     [--keep-fantasy] [--sample-every 48] [--csv] \
+//     [--keep-fantasy] [--fake-chronicle] [--sample-every 48] [--csv] \
 //     [--set KEY=value ...] [--sweep KEY=v1,v2,... ...]
+//
+// --fake-chronicle (only meaningful with --keep-fantasy) runs the real
+// chronicle selection logic at production cadence with placeholder prose — no
+// LLM call, no API key, $0 — so the light Conduit-bond path (which requires
+// chronicle mentions) becomes reachable. See fakeChronicle.ts.
 //
 // --set/--sweep values are matched against RELATIONSHIP_CONSTANTS/
 // CONDUIT_CONSTANTS by constantsRegistry.ts (v1.1) — see run.ts.
@@ -65,6 +70,7 @@ export function parseArgs(argv: string[]): CliOptions {
   let seeds: number[] | null = null;
   let days: number | null = null;
   let keepFantasy = false;
+  let fakeChronicle = false;
   let sampleEveryTicks = DEFAULT_SAMPLE_EVERY_TICKS;
   let csv = false;
   const setOverrides: ConstantOverride[] = [];
@@ -82,6 +88,9 @@ export function parseArgs(argv: string[]): CliOptions {
         break;
       case '--keep-fantasy':
         keepFantasy = true;
+        break;
+      case '--fake-chronicle':
+        fakeChronicle = true;
         break;
       case '--sample-every':
         sampleEveryTicks = Number.parseInt(argv[++i] ?? '', 10);
@@ -110,6 +119,7 @@ export function parseArgs(argv: string[]): CliOptions {
     seeds,
     days,
     keepFantasy,
+    fakeChronicle,
     sampleEveryTicks,
     csv,
     setOverrides,

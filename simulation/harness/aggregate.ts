@@ -61,8 +61,11 @@ export interface AggregateStats {
   peakPopulation: NumericStat;
   minPopulation: NumericStat;
   illnessEvents: NumericStat;
+  firstArtifactFoundDay: NumericStat;
+  artifactsFound: NumericStat;
   northSeedCount: number; // seeds that ever sent someone at/below NORTH_THRESHOLD_Y
   deathSeedCount: number; // seeds that recorded at least one death
+  artifactSeedCount: number; // seeds that found at least one artifact
 }
 
 export function computeAggregateStats(metricsList: SeedMetrics[], days: number): AggregateStats {
@@ -92,10 +95,13 @@ export function computeAggregateStats(metricsList: SeedMetrics[], days: number):
     peakPopulation: computeStat(metricsList.map((m) => m.peakPopulation)),
     minPopulation: computeStat(metricsList.map((m) => m.minPopulation)),
     illnessEvents: computeStat(metricsList.map((m) => m.illnessEvents)),
+    firstArtifactFoundDay: computeStat(metricsList.map((m) => m.firstArtifactFoundDay)),
+    artifactsFound: computeStat(metricsList.map((m) => m.artifactsFound)),
     northSeedCount: metricsList.filter(
       (m) => m.maxDistanceNorth !== null && m.maxDistanceNorth <= NORTH_THRESHOLD_Y,
     ).length,
     deathSeedCount: metricsList.filter((m) => m.deaths > 0).length,
+    artifactSeedCount: metricsList.filter((m) => m.artifactsFound > 0).length,
   };
 }
 
@@ -106,6 +112,7 @@ export interface FantasyAggregateStats {
   sourceControlFinal: NumericStat;
   sourceFlips: NumericStat;
   pilgrimages: NumericStat;
+  artifactsImprinted: NumericStat;
   lightBondFirstCount: number;
   darkBondFirstCount: number;
 }
@@ -118,6 +125,7 @@ export function computeFantasyAggregateStats(fantasyList: FantasySeedMetrics[]):
     sourceControlFinal: computeStat(fantasyList.map((f) => f.sourceControlFinal)),
     sourceFlips: computeStat(fantasyList.map((f) => f.sourceFlips)),
     pilgrimages: computeStat(fantasyList.map((f) => f.pilgrimages)),
+    artifactsImprinted: computeStat(fantasyList.map((f) => f.artifactsImprinted)),
     lightBondFirstCount: fantasyList.filter((f) => f.firstConduitBondNature === 'light').length,
     darkBondFirstCount: fantasyList.filter((f) => f.firstConduitBondNature === 'dark').length,
   };
@@ -193,6 +201,15 @@ export function buildGateVerdict(
       totalSeeds,
       `(${stats.northSeedCount}/${totalSeeds} seeds sent anyone north of y${NORTH_THRESHOLD_Y})`,
       `(0/${totalSeeds} seeds sent anyone north of y${NORTH_THRESHOLD_Y}) ← investigate`,
+    ),
+  );
+  lines.push(
+    gate(
+      'artifacts',
+      stats.artifactSeedCount,
+      totalSeeds,
+      `(${stats.artifactSeedCount}/${totalSeeds} seeds; median firstArtifactFoundDay ${stats.firstArtifactFoundDay.median})`,
+      `(0/${totalSeeds} seeds found an artifact in ${days} days) ← investigate`,
     ),
   );
 
