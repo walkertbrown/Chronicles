@@ -17,3 +17,10 @@ dist/
 
 # Next.js
 .next/
+
+# Wind-tunnel harness output: throwaway timestamped CSVs/summaries from
+# individual runs. The two hand-written baseline reports are the actual
+# deliverable, so they're kept (see wind-tunnel-spec.md Deliverable 2).
+simulation/harness/results/*
+!simulation/harness/results/BASELINE.md
+!simulation/harness/results/BASELINE-FANTASY.md
