@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { fetchChronicle } from '../../lib/api';
 import type { ChronicleEntry } from '../../lib/types';
-import { oracle, Kicker, SectionHead, Seal, Masthead, VotePanel } from '../../lib/oracle';
+import { oracle, Kicker, SectionHead, Seal, Masthead } from '../../lib/oracle';
+import { VotePanel } from '../../lib/vote/VotePanel';
+import { WORLD_NAME } from '../../lib/worldName';
 
 const c = oracle.c;
 const f = oracle.fonts;
@@ -242,7 +244,7 @@ export default function ChroniclePage() {
         <div ref={latestRef} style={{ scrollMarginTop: 80, marginTop: archive.length > 0 ? 'clamp(36px,6vw,64px)' : 0 }}>
           {/* book head */}
           <div style={{ textAlign: 'center', marginBottom: 'clamp(28px,5vw,52px)' }}>
-            <Kicker color={c.accent}>The Chronicle of Aethel</Kicker>
+            <Kicker color={c.accent}>The Chronicle of {WORLD_NAME}</Kicker>
             <h1 style={{ fontFamily: f.display, fontWeight: 600, fontSize: 'clamp(34px,5vw,52px)', color: c.text, margin: '12px 0 0', letterSpacing: '0.08em' }}>
               {latestHeadline}
             </h1>
@@ -276,12 +278,12 @@ export default function ChroniclePage() {
           <button
             type="button"
             onClick={() => setVoteOpen(true)}
-            style={{ display: 'none', alignItems: 'center', gap: 16, width: '100%', textAlign: 'left', cursor: 'pointer', margin: '26px 0 0', padding: '18px 22px', background: c.accentSoft, border: `1px solid ${c.lineStrong}` }}
+            style={{ display: 'flex', alignItems: 'center', gap: 16, width: '100%', textAlign: 'left', cursor: 'pointer', margin: '26px 0 0', padding: '18px 22px', background: c.accentSoft, border: `1px solid ${c.lineStrong}` }}
           >
             <Seal size={46} glyph="◉" subtle />
             <span style={{ flex: 1 }}>
               <Kicker color={c.accent}>You are watching</Kicker>
-              <span style={{ display: 'block', fontFamily: f.display, fontSize: 21, color: c.text, marginTop: 3 }}>Divinity Choice</span>
+              <span style={{ display: 'block', fontFamily: f.display, fontSize: 21, color: c.text, marginTop: 3 }}>Breathe upon the world</span>
               <span style={{ display: 'block', fontFamily: f.serif, fontSize: 14, color: c.textDim, marginTop: 3 }}>
                 You may breathe upon the world — once, this cycle.
               </span>

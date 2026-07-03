@@ -6,7 +6,8 @@ import { fetchWorldState, fetchDeaths } from '../../lib/api';
 import type { AgentSnapshot, DeadAgentSnapshot, WorldSnapshot } from '../../lib/types';
 // tileToSvg is the canonical tile→SVG mapping; imported, never re-implemented here.
 import { tileToSvg, SVG_W, SVG_H } from '../../lib/tileCoords';
-import { oracle, EngravedBar, Kicker, SectionHead, Seal, GiltRings, Segmented, Masthead, VotePanel } from '../../lib/oracle';
+import { oracle, EngravedBar, Kicker, SectionHead, Seal, GiltRings, Segmented, Masthead } from '../../lib/oracle';
+import { VotePanel } from '../../lib/vote/VotePanel';
 import { useViewport } from '../../lib/useViewport';
 import { AtlasMobile, type AtlasMode } from '../../lib/atlasMobile';
 import { LandingInset, landingWindowTiles, type InsetOffset } from '../../lib/landingInset';
@@ -60,7 +61,7 @@ const SVG_PER_TILE_X = (tileToSvg(1000, 0)[0] - tileToSvg(0, 0)[0]) / 1000;
 const SVG_PER_TILE_Y = (tileToSvg(0, 1000)[1] - tileToSvg(0, 0)[1]) / 1000;
 
 // ── reader intervention ──────────────────────────────────────────────────────
-// VOTE data + VotePanel live in lib/oracle.tsx (shared with the chronicle page).
+// VotePanel + its copy/hook live in lib/vote/ (shared with the chronicle page).
 
 function HoursBrief({ worldNow, open, onToggle }: { worldNow: string; open: boolean; onToggle: () => void }) {
   return (
@@ -1048,12 +1049,12 @@ function Roster({
       <button
         type="button"
         onClick={onOpenVote}
-        style={{ display: 'none', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', cursor: 'pointer', marginTop: 22, padding: 14, background: c.accentSoft, border: `1px solid ${c.lineStrong}` }}
+        style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', cursor: 'pointer', marginTop: 22, padding: 14, background: c.accentSoft, border: `1px solid ${c.lineStrong}` }}
       >
         <Seal size={40} glyph="◉" subtle />
         <span style={{ flex: 1 }}>
           <Kicker color={c.accent}>You are watching</Kicker>
-          <span style={{ display: 'block', fontFamily: f.display, fontSize: 18, color: c.text, marginTop: 2 }}>Divinity Choice</span>
+          <span style={{ display: 'block', fontFamily: f.display, fontSize: 18, color: c.text, marginTop: 2 }}>Breathe upon the world</span>
         </span>
         <span style={{ fontFamily: f.mono, fontSize: 16, color: c.accent }}>→</span>
       </button>
