@@ -39,7 +39,7 @@ const DAMAGE_RANGE = 0.13; // random component, giving 0.15–0.28
 // MAIN EXPORT
 // ============================================================
 
-export function tickPredatorThreat(agent: Agent, state: WorldState): void {
+export function tickPredatorThreat(agent: Agent, state: WorldState, rng: () => number): void {
   // Fast exit: safe terrain or terrain with no predator entry.
   const tile = getTile(state.tiles, agent.position.x, agent.position.y);
   const terrain = tile?.terrain;
@@ -75,10 +75,10 @@ export function tickPredatorThreat(agent: Agent, state: WorldState): void {
   const attackChance =
     terrainBase * distanceFactor * (1 - companyMitigation) * Math.max(0.3, traitDampener);
 
-  if (Math.random() >= attackChance) return;
+  if (rng() >= attackChance) return;
 
   // ── Hit ──────────────────────────────────────────────────────────────────
-  const damage = DAMAGE_MIN + Math.random() * DAMAGE_RANGE;
+  const damage = DAMAGE_MIN + rng() * DAMAGE_RANGE;
   agent.healthScore = Math.max(0, agent.healthScore - damage);
   agent.drives.fear = Math.min(1, agent.drives.fear + 0.3);
   agent.animalAttackTick = state.tick;

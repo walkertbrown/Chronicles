@@ -158,6 +158,7 @@ export function wanderlustExpresses(agent: Agent): boolean {
 export function pickForayWaypoint(
   agent: Agent,
   state: WorldState,
+  rng: () => number,
 ): { x: number; y: number } | null {
   const discoveryCount = agent.discoveredTileIds?.length ?? 0;
   const maxDist = Math.min(
@@ -172,7 +173,6 @@ export function pickForayWaypoint(
   // at varying distances from home. We step by ~5-tile increments to cover
   // different distances without scanning the whole map.
   const candidates: Array<{ x: number; y: number; score: number }> = [];
-  const rng = Math.random; // local random, not seeded — foray choice is non-deterministic
 
   for (let attempt = 0; attempt < WAYPOINT_CANDIDATES * 3 && candidates.length < WAYPOINT_CANDIDATES; attempt++) {
     // Random angle biased toward north (lower y)
@@ -285,7 +285,7 @@ export function agentIsDwelling(agent: Agent): boolean {
 // No survival logic here — the dominant-drive preemption in actions.ts
 // already handles pulling a hungry/scared scout back. actionFlee already
 // steers toward COAST_ROW so a frightened scout runs home automatically.
-export function actionVenture(agent: Agent, state: WorldState): TickOutcome {
+export function actionVenture(agent: Agent, state: WorldState, rng: () => number): TickOutcome {
   // ---- Dwell: if we're currently lingering on dangerous terrain, count down ----
   const currentTile = getTile(state.tiles, agent.position.x, agent.position.y);
   const onDangerousTerrain =
@@ -312,7 +312,7 @@ export function actionVenture(agent: Agent, state: WorldState): TickOutcome {
 
   // Pick (or refresh) a waypoint if we don't have one, or if we've arrived.
   if (wp === null || (agent.position.x === wp.x && agent.position.y === wp.y)) {
-    wp = pickForayWaypoint(agent, state);
+    wp = pickForayWaypoint(agent, state, rng);
     setWaypoint(agent, wp);
   }
 
@@ -372,7 +372,7 @@ export function actionVenture(agent: Agent, state: WorldState): TickOutcome {
 
   // Arrived on dangerous terrain — start a dwell window so the scout lingers
   if (DWELL_TERRAIN.has(nextTile.terrain)) {
-    const dwellTicks = DWELL_MIN_TICKS + Math.floor(Math.random() * (DWELL_MAX_TICKS - DWELL_MIN_TICKS + 1));
+    const dwellTicks = DWELL_MIN_TICKS + Math.floor(rng() * (DWELL_MAX_TICKS - DWELL_MIN_TICKS + 1));
     setDwellRemaining(agent, dwellTicks);
   }
 

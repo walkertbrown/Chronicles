@@ -121,7 +121,7 @@ export function illnessSkillMultiplier(agent: Agent): number {
 // INFECTION
 // ============================================================
 
-export function checkInfection(agent: Agent, state: WorldState): boolean {
+export function checkInfection(agent: Agent, state: WorldState, rng: () => number): boolean {
   if (agent.illnessState !== null) return false;
 
   const tile = getTile(state.tiles, agent.position.x, agent.position.y);
@@ -131,7 +131,7 @@ export function checkInfection(agent: Agent, state: WorldState): boolean {
   if (
     tile?.terrain === Terrain.River &&
     drankOrAteThisTick &&
-    Math.random() <
+    rng() <
       (tile.resources.water.current < LOW_WATER_RESOURCE
         ? INFECTION_WATER_LOW_RESOURCE
         : INFECTION_WATER_CHANCE)
@@ -144,14 +144,14 @@ export function checkInfection(agent: Agent, state: WorldState): boolean {
     state.season === Season.Winter &&
     agent.traits.endurance < EXPOSURE_ENDURANCE_MAX &&
     agent.drives.fatigue > EXPOSURE_FATIGUE_MIN &&
-    Math.random() < INFECTION_EXPOSURE_CHANCE
+    rng() < INFECTION_EXPOSURE_CHANCE
   ) {
     contractIllness(agent, state, 0.1);
     return true;
   }
 
   for (const other of agentsOnSameTile(agent, state)) {
-    if (other.illnessState !== null && Math.random() < INFECTION_PROXIMITY_CHANCE) {
+    if (other.illnessState !== null && rng() < INFECTION_PROXIMITY_CHANCE) {
       contractIllness(agent, state, 0.1);
       return true;
     }
@@ -160,10 +160,10 @@ export function checkInfection(agent: Agent, state: WorldState): boolean {
   return false;
 }
 
-export function checkWoundInfection(agent: Agent, currentTick: number): boolean {
+export function checkWoundInfection(agent: Agent, currentTick: number, rng: () => number): boolean {
   if (agent.illnessState !== null) return false;
 
-  if (Math.random() < INFECTION_WOUND_CHANCE) {
+  if (rng() < INFECTION_WOUND_CHANCE) {
     agent.illnessState = {
       sick: true,
       severity: 0.15,

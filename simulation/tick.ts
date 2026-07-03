@@ -273,7 +273,7 @@ export function tick(state: WorldState, rng: () => number): TickSummary {
   let birthsThisTick: string[] = [];
   const newChronicleThreads: string[] = [];
 
-  const landingEvent = tickVessel(state);
+  const landingEvent = tickVessel(state, rng);
   const landingOccurred = landingEvent !== null;
 
   const outcomesByAgent = new Map<string, TickOutcome[]>();
@@ -285,9 +285,9 @@ export function tick(state: WorldState, rng: () => number): TickSummary {
 
   for (const agent of shuffleAgents(aliveAgents(state), rng)) {
     const agentOutcomes: TickOutcome[] = [];
-    executeAgentAction(agent, state, agentOutcomes);
+    executeAgentAction(agent, state, agentOutcomes, rng);
     outcomesByAgent.set(agent.id, agentOutcomes);
-    tickPredatorThreat(agent, state);
+    tickPredatorThreat(agent, state, rng);
   }
 
   for (const [agentId, agentOutcomes] of outcomesByAgent) {
@@ -339,7 +339,7 @@ export function tick(state: WorldState, rng: () => number): TickSummary {
   }
 
   for (const agent of aliveAgents(state)) {
-    const newlyInfected = checkInfection(agent, state);
+    const newlyInfected = checkInfection(agent, state, rng);
     if (newlyInfected) {
       logEvent(
         state,
@@ -397,7 +397,7 @@ export function tick(state: WorldState, rng: () => number): TickSummary {
     .slice(agentCountBeforeBirths)
     .map((agent) => agent.id);
 
-  const conduitEvents = tickAllConduits(state);
+  const conduitEvents = tickAllConduits(state, rng);
   for (const event of conduitEvents) {
     state.eventLog.push(event);
   }

@@ -127,6 +127,7 @@ function pickRandomPassableAdjacent(
   state: WorldState,
   x: number,
   y: number,
+  rng: () => number,
 ): { x: number; y: number } | undefined {
   const candidates: { x: number; y: number }[] = [];
   for (const tile of getAdjacentTiles(state.tiles, x, y)) {
@@ -135,7 +136,7 @@ function pickRandomPassableAdjacent(
     }
   }
   if (candidates.length === 0) return undefined;
-  return candidates[Math.floor(Math.random() * candidates.length)];
+  return candidates[Math.floor(rng() * candidates.length)];
 }
 
 function stepTowardPassable(
@@ -211,7 +212,7 @@ function tickConduitDrives(conduit: ConduitBeing, state: WorldState): void {
 // MOVEMENT
 // ============================================================
 
-function moveConduit(conduit: ConduitBeing, state: WorldState): void {
+function moveConduit(conduit: ConduitBeing, state: WorldState, rng: () => number): void {
   const { x, y } = conduit.position;
 
   // 1. Fear — flee from nearest agent
@@ -250,7 +251,7 @@ function moveConduit(conduit: ConduitBeing, state: WorldState): void {
     conduit.bondedAgentId === null &&
     conduit.drives.fear < FEAR_CURIOSITY_MOVE_MAX &&
     conduit.drives.curiosity > CURIOSITY_MOVE_THRESHOLD &&
-    Math.random() < CURIOSITY_HUMAN_PULL_CHANCE
+    rng() < CURIOSITY_HUMAN_PULL_CHANCE
   ) {
     const alive = aliveAgents(state);
     const inRange = agentsWithinRadius(alive, x, y, CURIOSITY_HUMAN_PULL_RADIUS);
@@ -277,8 +278,8 @@ function moveConduit(conduit: ConduitBeing, state: WorldState): void {
 
   // 5. Random wander
   const moveChance = MOVE_CHANCE_BASE + conduit.drives.curiosity * CURIOSITY_MOVE_BONUS;
-  if (Math.random() < moveChance) {
-    const r = pickRandomPassableAdjacent(state, x, y);
+  if (rng() < moveChance) {
+    const r = pickRandomPassableAdjacent(state, x, y, rng);
     if (r !== undefined) setConduitPosition(conduit, state, r.x, r.y);
   }
 }
@@ -323,6 +324,7 @@ function maybeLogSighting(
   conduit: ConduitBeing,
   state: WorldState,
   events: SimEvent[],
+  rng: () => number,
 ): void {
   if (conduit.bondedAgentId !== null) return; // bonded Conduits don't generate sighting events
 
@@ -347,7 +349,7 @@ function maybeLogSighting(
     `The creature was gone before anyone moved toward it, but ${anchor.name} ${anchor.familyName} saw it clearly.`,
     `Something luminous and still watched from the undergrowth. ${anchor.name} ${anchor.familyName} did not look away.`,
   ];
-  const description = descriptions[Math.floor(Math.random() * descriptions.length)] ?? descriptions[0]!;
+  const description = descriptions[Math.floor(rng() * descriptions.length)] ?? descriptions[0]!;
 
   const event: SimEvent = {
     id: `sighting_${conduit.id}_${state.tick}`,
@@ -420,6 +422,7 @@ function executeBond(
   bondType: 'light' | 'dark',
   state: WorldState,
   events: SimEvent[],
+  rng: () => number,
 ): void {
   const agent = findAgentById(state, agentId);
   if (agent === undefined) return;
@@ -444,7 +447,7 @@ function executeBond(
     `The bond formed without ceremony. Those near ${agent.name} ${agent.familyName} felt the shift before they could name it.`,
   ];
   const descs = bondType === 'light' ? lightDescriptions : darkDescriptions;
-  const description = descs[Math.floor(Math.random() * descs.length)] ?? descs[0]!;
+  const description = descs[Math.floor(rng() * descs.length)] ?? descs[0]!;
 
   const event: SimEvent = {
     id: `bond_${conduit.id}_${agentId}_${state.tick}`,
@@ -508,6 +511,7 @@ function executeImprint(
   tile: WorldTile,
   state: WorldState,
   events: SimEvent[],
+  rng: () => number,
 ): void {
   artifact.imprinted = true;
   artifact.legible = true;
@@ -525,7 +529,7 @@ function executeImprint(
     `The creature recognized the thing ${agent.name} ${agent.familyName} carried. That was clear. What woke in it at that moment was not.`,
   ];
   const descs = conduit.bondType === 'light' ? lightDescriptions : darkDescriptions;
-  const description = descs[Math.floor(Math.random() * descs.length)] ?? descs[0]!;
+  const description = descs[Math.floor(rng() * descs.length)] ?? descs[0]!;
 
   const event: SimEvent = {
     id: `imprint_${conduit.id}_${artifact.id}_${state.tick}`,
@@ -546,6 +550,7 @@ function maybeImprint(
   conduit: ConduitBeing,
   state: WorldState,
   events: SimEvent[],
+  rng: () => number,
 ): void {
   // Four trigger conditions must all hold
   if (conduit.bondedAgentId === null) return;
@@ -561,7 +566,7 @@ function maybeImprint(
   const artifact = tile.artifacts.find((a) => a.discovered === true && a.imprinted !== true);
   if (artifact === undefined) return;
 
-  executeImprint(conduit, agent, artifact, tile, state, events);
+  executeImprint(conduit, agent, artifact, tile, state, events, rng);
 }
 
 // ============================================================
@@ -594,22 +599,22 @@ export function applyConduitSignificanceMultipliers(state: WorldState): void {
  * Returns new SimEvents generated this tick (sightings, bonds, bond breaks).
  * Caller is responsible for appending these to state.eventLog.
  */
-export function tickAllConduits(state: WorldState): SimEvent[] {
+export function tickAllConduits(state: WorldState, rng: () => number): SimEvent[] {
   const newEvents: SimEvent[] = [];
 
   for (const conduit of state.conduits) {
     tickConduitDrives(conduit, state);
-    moveConduit(conduit, state);
+    moveConduit(conduit, state, rng);
     updateProximityHistory(conduit, state);
-    maybeLogSighting(conduit, state, newEvents);
+    maybeLogSighting(conduit, state, newEvents, rng);
     updateBondStrength(conduit, state, newEvents);
-    maybeImprint(conduit, state, newEvents);
+    maybeImprint(conduit, state, newEvents, rng);
 
     // Check for new bond — only unbonded Conduits
     if (conduit.bondedAgentId === null) {
       const eligible = checkBondEligibility(conduit, state);
       if (eligible !== null) {
-        executeBond(conduit, eligible.agentId, eligible.type, state, newEvents);
+        executeBond(conduit, eligible.agentId, eligible.type, state, newEvents, rng);
       }
     }
   }

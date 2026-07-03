@@ -575,7 +575,7 @@ function shouldNobilityHelp(agent: Agent, state: WorldState): boolean {
   return findDistressedAgent(agent, state) !== undefined;
 }
 
-function shouldConflict(agent: Agent, state: WorldState): boolean {
+function shouldConflict(agent: Agent, state: WorldState, rng: () => number): boolean {
   if (agent.traits.aggression <= 0.5) return false;
   const others = agentsOnSameTile(agent, state);
   if (others.length === 0) return false;
@@ -583,13 +583,13 @@ function shouldConflict(agent: Agent, state: WorldState): boolean {
   const chance =
     CONFLICT_BASE_CHANCE +
     (agent.traits.aggression - 0.5) * CONFLICT_AGGRESSION_SCALE;
-  return Math.random() < chance;
+  return rng() < chance;
 }
 
-function pickRandomSameTileTarget(agent: Agent, state: WorldState): Agent | undefined {
+function pickRandomSameTileTarget(agent: Agent, state: WorldState, rng: () => number): Agent | undefined {
   const others = agentsOnSameTile(agent, state);
   if (others.length === 0) return undefined;
-  const index = Math.floor(Math.random() * others.length);
+  const index = Math.floor(rng() * others.length);
   return others[index];
 }
 
@@ -646,9 +646,9 @@ function actionRestAtSea(agent: Agent): TickOutcome {
   return makeOutcome(agent, { type: OutcomeType.Rested, success: true });
 }
 
-function actionMaintainVessel(agent: Agent): TickOutcome {
+function actionMaintainVessel(agent: Agent, rng: () => number): TickOutcome {
   const success =
-    Math.random() <
+    rng() <
     agent.skills.building * fatigueModifier(agent.drives.fatigue) + 0.2;
 
   return makeOutcome(agent, {
@@ -1004,7 +1004,7 @@ function actionHelp(agent: Agent, state: WorldState): TickOutcome {
   });
 }
 
-function pickExploreTile(agent: Agent, state: WorldState): WorldTile | undefined {
+function pickExploreTile(agent: Agent, state: WorldState, rng: () => number): WorldTile | undefined {
   const adjacent = getAdjacentTiles(
     state.tiles,
     agent.position.x,
@@ -1030,12 +1030,12 @@ function pickExploreTile(agent: Agent, state: WorldState): WorldTile | undefined
     (tile) => !discoveredSet.has(tileId(tile.x, tile.y)),
   );
   if (randomUndiscovered.length > 0) {
-    const index = Math.floor(Math.random() * randomUndiscovered.length);
+    const index = Math.floor(rng() * randomUndiscovered.length);
     return randomUndiscovered[index];
   }
 
   if (undiscovered.length > 0) {
-    const index = Math.floor(Math.random() * undiscovered.length);
+    const index = Math.floor(rng() * undiscovered.length);
     return undiscovered[index];
   }
 
@@ -1050,8 +1050,8 @@ function pickExploreTile(agent: Agent, state: WorldState): WorldTile | undefined
   return bestPassable;
 }
 
-function actionExplore(agent: Agent, state: WorldState): TickOutcome {
-  const destination = pickExploreTile(agent, state);
+function actionExplore(agent: Agent, state: WorldState, rng: () => number): TickOutcome {
+  const destination = pickExploreTile(agent, state, rng);
   if (destination === undefined) {
     return makeOutcome(agent, { type: OutcomeType.Explored, success: false });
   }
@@ -1093,7 +1093,7 @@ function actionExplore(agent: Agent, state: WorldState): TickOutcome {
   return makeOutcome(agent, { type: OutcomeType.Explored, success: true });
 }
 
-function actionWander(agent: Agent, state: WorldState): TickOutcome {
+function actionWander(agent: Agent, state: WorldState, rng: () => number): TickOutcome {
   const adjacent = getAdjacentTiles(
     state.tiles,
     agent.position.x,
@@ -1104,7 +1104,7 @@ function actionWander(agent: Agent, state: WorldState): TickOutcome {
     return makeOutcome(agent, { type: OutcomeType.Wandered, success: false });
   }
 
-  const index = Math.floor(Math.random() * adjacent.length);
+  const index = Math.floor(rng() * adjacent.length);
   const destination = adjacent[index];
   if (destination === undefined) {
     return makeOutcome(agent, { type: OutcomeType.Wandered, success: false });
@@ -1115,14 +1115,14 @@ function actionWander(agent: Agent, state: WorldState): TickOutcome {
 
   if (
     agent.drives.grief > 0.6 &&
-    Math.random() < agent.traits.curiosity
+    rng() < agent.traits.curiosity
   ) {
     const secondAdjacent = getAdjacentTiles(
       state.tiles,
       agent.position.x,
       agent.position.y,
     ).filter((tile) => isPassable(tile.terrain, state.vessel.beached) && !isVesselZone(tile.y));
-    const secondIndex = Math.floor(Math.random() * secondAdjacent.length);
+    const secondIndex = Math.floor(rng() * secondAdjacent.length);
     const second = secondAdjacent[secondIndex];
     if (second !== undefined) {
       moveAgent(agent, second.x, second.y, state);
@@ -1138,15 +1138,16 @@ function actionConflict(
   targetAgent: Agent,
   state: WorldState,
   outcomes: TickOutcome[],
+  rng: () => number,
 ): TickOutcome {
   const agentStrength =
     agent.traits.aggression * 0.5 +
     agent.traits.courage * 0.3 +
-    Math.random() * 0.2;
+    rng() * 0.2;
   const targetStrength =
     targetAgent.traits.aggression * 0.5 +
     targetAgent.traits.courage * 0.3 +
-    Math.random() * 0.2;
+    rng() * 0.2;
   const agentWon = agentStrength > targetStrength;
 
   agent.drives.fear = clamp01(agent.drives.fear + 0.2);
@@ -1181,9 +1182,9 @@ function actionConflict(
     rivalFeudBonus;
   const violenceChance = baseViolenceChance * (1 - loser.traits.courage * 0.4);
 
-  if (Math.random() < violenceChance) {
+  if (rng() < violenceChance) {
     const spear = findTool(winner, ItemType.Spear);
-    let damage = (0.12 + Math.random() * 0.10) * (0.8 + winner.traits.aggression * 0.4);
+    let damage = (0.12 + rng() * 0.10) * (0.8 + winner.traits.aggression * 0.4);
     if (spear !== undefined) damage *= 1.5;
     loser.healthScore = Math.max(0, loser.healthScore - damage);
     loser.lastViolenceTick = state.tick;
@@ -1209,7 +1210,7 @@ function actionConflict(
     winner.chronicleChallenge = Math.min(1, winner.chronicleChallenge + 0.15);
   }
 
-  checkWoundInfection(loser, state.tick);
+  checkWoundInfection(loser, state.tick, rng);
   // Tick loop logs illness events when illness state changes
 
   return makeOutcome(agent, {
@@ -1292,10 +1293,10 @@ function forageOutcomeType(mode: ForageMode): OutcomeType {
   return OutcomeType.Harvested;
 }
 
-function workForage(agent: Agent, state: WorldState, mode: ForageMode): TickOutcome {
+function workForage(agent: Agent, state: WorldState, mode: ForageMode, rng: () => number): TickOutcome {
   driftHome(agent, state); // the camp eases toward wherever they're working (and toward a mate's hearth)
-  if (mode === 'hunt') return actionHunt(agent, state);
-  if (mode === 'fish') return actionFish(agent, state);
+  if (mode === 'hunt') return actionHunt(agent, state, rng);
+  if (mode === 'fish') return actionFish(agent, state, rng);
   return actionHarvestFood(agent, state);
 }
 
@@ -1376,7 +1377,7 @@ function homePullFactor(
 
 // Pick how and where to forage from the agent's own vantage, then either work
 // the current spot or take one step toward the best patch it can see.
-function chooseForage(agent: Agent, state: WorldState): TickOutcome {
+function chooseForage(agent: Agent, state: WorldState, rng: () => number): TickOutcome {
   const fx = agent.position.x;
   const fy = agent.position.y;
 
@@ -1412,7 +1413,7 @@ function chooseForage(agent: Agent, state: WorldState): TickOutcome {
   // Nothing actually worth eating within sight — wander to find fresher ground.
   // (Viability is judged on raw food yield, never on the cohesion bonus.)
   if (best === undefined || best.raw < FORAGE_MIN_VIABLE) {
-    return actionWander(agent, state);
+    return actionWander(agent, state, rng);
   }
 
   // Satisfice on the cohesion-adjusted score, but only settle on a tile that is
@@ -1423,18 +1424,18 @@ function chooseForage(agent: Agent, state: WorldState): TickOutcome {
     hereChoice.raw >= FORAGE_MIN_VIABLE &&
     hereChoice.adj >= FORAGE_SATISFICE_FRAC * best.adj
   ) {
-    return workForage(agent, state, hereChoice.mode);
+    return workForage(agent, state, hereChoice.mode, rng);
   }
 
   if (best.tile.x === fx && best.tile.y === fy) {
-    return workForage(agent, state, best.mode);
+    return workForage(agent, state, best.mode, rng);
   }
 
   stepAgentToward(agent, best.tile.x, best.tile.y, state);
   return makeOutcome(agent, { type: forageOutcomeType(best.mode), success: false, partial: true });
 }
 
-function actionHunt(agent: Agent, state: WorldState): TickOutcome {
+function actionHunt(agent: Agent, state: WorldState, rng: () => number): TickOutcome {
   const tile = getTile(state.tiles, agent.position.x, agent.position.y);
   const localGame = tile?.resources.game.current ?? 0;
 
@@ -1455,7 +1456,7 @@ function actionHunt(agent: Agent, state: WorldState): TickOutcome {
     crowdingPenalty *
     spearMult;
   const fatigued = fatigueModifier(agent.drives.fatigue);
-  const success = Math.random() < successChance * fatigued * illnessSkillMultiplier(agent);
+  const success = rng() < successChance * fatigued * illnessSkillMultiplier(agent);
 
   agent.drives.fatigue = clamp01(agent.drives.fatigue + HUNT_COST_FATIGUE);
   if (spear !== undefined) wearTool(agent, ItemType.Spear, SPEAR_WEAR_PER_HUNT); // the hunt wears the spear
@@ -1472,8 +1473,8 @@ function actionHunt(agent: Agent, state: WorldState): TickOutcome {
   }
 
   const attackChance = 0.08 - agent.skills.hunting * 0.06;
-  if (Math.random() < Math.max(0.02, attackChance)) {
-    const huntDamage = 0.18 + Math.random() * 0.12; // 0.18–0.30
+  if (rng() < Math.max(0.02, attackChance)) {
+    const huntDamage = 0.18 + rng() * 0.12; // 0.18–0.30
     agent.healthScore = Math.max(0, agent.healthScore - huntDamage);
     agent.drives.fear = clamp01(agent.drives.fear + 0.3);
     agent.animalAttackTick = state.tick;
@@ -1486,7 +1487,7 @@ function actionHunt(agent: Agent, state: WorldState): TickOutcome {
   });
 }
 
-function actionFish(agent: Agent, state: WorldState): TickOutcome {
+function actionFish(agent: Agent, state: WorldState, rng: () => number): TickOutcome {
   const tile = getTile(state.tiles, agent.position.x, agent.position.y);
   // Aquatic forage (fish, shellfish) is drawn from the river/coast tile's food
   // stock — fishing depletes it just as hunting depletes game.
@@ -1502,7 +1503,7 @@ function actionFish(agent: Agent, state: WorldState): TickOutcome {
     stockFactor *
     crowdingPenalty;
   const fatigued = fatigueModifier(agent.drives.fatigue);
-  const success = Math.random() < successChance * fatigued * illnessSkillMultiplier(agent);
+  const success = rng() < successChance * fatigued * illnessSkillMultiplier(agent);
 
   agent.drives.fatigue = clamp01(agent.drives.fatigue + FISH_COST_FATIGUE);
 
@@ -1585,7 +1586,7 @@ function actionChopWood(agent: Agent, state: WorldState, target: WorldTile): Tic
 
 // What a content agent does with no pressing drive: work on the camp shelter if
 // there's one to raise, else lay up a little timber, else explore or wander.
-function actionIdle(agent: Agent, state: WorldState): TickOutcome {
+function actionIdle(agent: Agent, state: WorldState, rng: () => number): TickOutcome {
   const camp = tryCampWork(agent, state);
   if (camp !== null) return camp;
   if (
@@ -1597,8 +1598,8 @@ function actionIdle(agent: Agent, state: WorldState): TickOutcome {
     if (stand !== undefined) return actionChopWood(agent, state, stand);
   }
   return agent.traits.curiosity >= CURIOSITY_EXPLORE_THRESHOLD
-    ? actionExplore(agent, state)
-    : actionWander(agent, state);
+    ? actionExplore(agent, state, rng)
+    : actionWander(agent, state, rng);
 }
 
 // ============================================================
@@ -1845,6 +1846,7 @@ export function executeAgentAction(
   agent: Agent,
   state: WorldState,
   outcomes: TickOutcome[],
+  rng: () => number,
 ): void {
   const atSea = isVesselZone(agent.position.y);
 
@@ -1885,7 +1887,7 @@ export function executeAgentAction(
 
     if (drive === null) {
       const o = (!state.vessel.beached && isOnVesselTile(agent, state))
-        ? actionMaintainVessel(agent)
+        ? actionMaintainVessel(agent, rng)
         : actionRestAtSea(agent);
       outcomes.push(o);
       agent.currentAction = describeOutcome(o, agent);
@@ -1955,7 +1957,7 @@ export function executeAgentAction(
   let outcome: TickOutcome;
 
   if (drive === null) {
-    outcome = actionIdle(agent, state);
+    outcome = actionIdle(agent, state, rng);
   } else {
     switch (drive) {
       case 'hunger': {
@@ -1965,7 +1967,7 @@ export function executeAgentAction(
         // agent must be able to leave before starving.
         if (agentIsDwelling(agent)) {
           // Stay in the venture action so the dwell clock ticks down
-          outcome = actionVenture(agent, state);
+          outcome = actionVenture(agent, state, rng);
           break;
         }
         if (!shouldEatNotDrink(agent, state)) {
@@ -1975,7 +1977,7 @@ export function executeAgentAction(
         // One routine scores fishing/hunting/gathering on nearby ground by this
         // agent's own skills and picks where to work or step — no global best-
         // tile oracle, so the band fans out by vocation instead of all fishing.
-        outcome = chooseForage(agent, state);
+        outcome = chooseForage(agent, state, rng);
         break;
       }
       case 'fatigue':
@@ -2005,25 +2007,25 @@ export function executeAgentAction(
         break;
       }
       case 'grief':
-        outcome = actionWander(agent, state);
+        outcome = actionWander(agent, state, rng);
         break;
       case 'wanderlust':
         // Only actually venture if the full gating predicate is met; otherwise
         // fall through to idle/wander so a low-curiosity agent doesn't venture.
         outcome = wanderlustExpresses(agent)
-          ? actionVenture(agent, state)
-          : actionIdle(agent, state);
+          ? actionVenture(agent, state, rng)
+          : actionIdle(agent, state, rng);
         break;
       default:
-        outcome = actionWander(agent, state);
+        outcome = actionWander(agent, state, rng);
         break;
     }
   }
 
-  if (shouldConflict(agent, state)) {
-    const target = pickRandomSameTileTarget(agent, state);
+  if (shouldConflict(agent, state, rng)) {
+    const target = pickRandomSameTileTarget(agent, state, rng);
     if (target !== undefined) {
-      const conflictOutcome = actionConflict(agent, target, state, outcomes);
+      const conflictOutcome = actionConflict(agent, target, state, outcomes, rng);
       outcomes.push(conflictOutcome);
       agent.currentAction = describeOutcome(conflictOutcome, agent);
       return;

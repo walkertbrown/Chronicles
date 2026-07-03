@@ -322,6 +322,7 @@ function isAgentOnVessel(agent: Agent, tiles: TileCache): boolean {
 function applyRoughLandingConsequences(
   agentsToMove: Agent[],
   integrity: number,
+  rng: () => number,
 ): void {
   if (integrity >= 0.7) return;
 
@@ -337,7 +338,7 @@ function applyRoughLandingConsequences(
   }
 
   const griefCount = Math.floor(agentsToMove.length * 0.3);
-  const selected = [...agentsToMove].sort(() => Math.random() - 0.5);
+  const selected = [...agentsToMove].sort(() => rng() - 0.5);
   for (let i = 0; i < griefCount; i++) {
     const agent = selected[i];
     if (agent !== undefined) {
@@ -364,7 +365,7 @@ function buildLandingDescription(
  * Beaches the vessel, relocates all agents from the vessel zone to coast row 29,
  * and logs a high-weight Migration event.
  */
-export function executeLanding(state: WorldState): SimEvent {
+export function executeLanding(state: WorldState, rng: () => number): SimEvent {
   const integrityAtLanding = state.vessel.integrity;
   const landingSite = findVesselLandingSite(state.tiles);
   const coastSlots = collectCoastSlots(state.tiles);
@@ -431,7 +432,7 @@ export function executeLanding(state: WorldState): SimEvent {
     involvedAgents.push(helmsman.id);
   }
 
-  applyRoughLandingConsequences(agentsToMove, integrityAtLanding);
+  applyRoughLandingConsequences(agentsToMove, integrityAtLanding, rng);
 
   const familyNames = [...new Set(agentsToMove.map((a) => a.familyName))];
 
@@ -463,7 +464,7 @@ export function executeLanding(state: WorldState): SimEvent {
  * Process vessel integrity, maintenance, and landing decision for one tick.
  * Returns a landing event when landfall occurs, otherwise null.
  */
-export function tickVessel(state: WorldState): SimEvent | null {
+export function tickVessel(state: WorldState, rng: () => number): SimEvent | null {
   if (state.vessel.beached) return null;
 
   reassignHelmsmanIfNeeded(state);
@@ -472,7 +473,7 @@ export function tickVessel(state: WorldState): SimEvent | null {
   degradeVesselIntegrity(state, maintenanceReduction);
 
   if (shouldTriggerLanding(state)) {
-    return executeLanding(state);
+    return executeLanding(state, rng);
   }
 
   return null;
