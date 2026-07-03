@@ -21,3 +21,11 @@ export function getCachedTally(cycleId: string): TallyCounts | null {
 export function setCachedTally(cycleId: string, counts: TallyCounts): void {
   cache.set(cycleId, { counts, expiresAt: Date.now() + TTL_MS });
 }
+
+/** Drop a cycle's cached entry so the next read goes to the real store. Call
+ *  this right after a successful vote write — otherwise a voter can POST
+ *  /api/vote and then immediately GET /api/tally and see their own vote
+ *  missing for up to TTL_MS, because the pre-vote count is still cached. */
+export function invalidateTally(cycleId: string): void {
+  cache.delete(cycleId);
+}
