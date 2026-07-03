@@ -1,13 +1,12 @@
 // simulation/harness/csvOutput.ts
 // Writes the --csv deliverables: one row per (seed × constant combination) in
-// <ISO-timestamp>.csv, plus a <ISO-timestamp>-summary.md with the aggregate
-// block and GATE VERDICT (the same content report.ts prints to the console).
+// <ISO-timestamp>.csv, plus a <ISO-timestamp>-summary.md wrapping the same
+// report text already printed to the console (report.ts formats it; this file
+// only knows how to persist it).
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AggregateStats, FantasyAggregateStats } from './aggregate.js';
-import { formatFullReport } from './report.js';
-import type { GateVerdictLine, SeedResult } from './types.js';
+import type { SeedResult } from './types.js';
 
 // NOTE: import.meta.dirname would resolve inside dist/ (the compiled file's own
 // location), not the source tree — since tsc mirrors simulation/harness/ into
@@ -92,10 +91,8 @@ export interface CsvWriteResult {
 
 export function writeCsvAndSummary(
   results: SeedResult[],
-  stats: AggregateStats,
-  fantasyStats: FantasyAggregateStats | null,
-  gateVerdict: GateVerdictLine[],
-  meta: { days: number; keepFantasy: boolean; combinationLabel?: string },
+  reportText: string,
+  meta: { days: number; keepFantasy: boolean },
 ): CsvWriteResult {
   mkdirSync(RESULTS_DIR, { recursive: true });
 
@@ -105,14 +102,13 @@ export function writeCsvAndSummary(
 
   writeFileSync(csvPath, buildCsv(results), 'utf8');
 
-  const report = formatFullReport(results, stats, fantasyStats, gateVerdict, meta);
   const summary = [
     `# Wind-tunnel run — ${timestamp}`,
     '',
-    `${results.length} seeds × ${meta.days} days, fantasy ${meta.keepFantasy ? 'kept' : 'stripped'}.`,
+    `${results.length} seed-run(s) total × ${meta.days} days, fantasy ${meta.keepFantasy ? 'kept' : 'stripped'}.`,
     '',
     '```',
-    report,
+    reportText,
     '```',
     '',
   ].join('\n');

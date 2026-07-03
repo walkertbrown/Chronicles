@@ -67,18 +67,26 @@ const FEAR_SPIKE_THRESHOLD_FOR_RECORD = 0.1;
 const SIGHTING_COOLDOWN_TICKS = 200;      // min ticks between sighting logs for same Conduit
 const SIGHTING_AGENT_RADIUS = 10;         // tiles — how close agents must be to trigger sighting
 
-// ---- Light bond eligibility ----
-const LIGHT_BOND_PROXIMITY_TICKS = 180;   // ticks spent near this agent
-const LIGHT_BOND_FEAR_SPIKES_MAX = 4;
-const LIGHT_BOND_CURIOSITY_MIN = 0.65;
-const LIGHT_BOND_SIGNIFICANCE_PERCENTILE = 0.80;  // top 20% of population by significance
-const LIGHT_BOND_CHRONICLE_PAGES_MIN = 3;
+// ---- Conduit-bond formation eligibility ----
+// Grouped into one exported, mutable object — mirrors RELATIONSHIP_CONSTANTS in
+// agents/relationships.ts — so the wind-tunnel harness can override how fast the
+// fantasy plot ignites (e.g. `CONDUIT_CONSTANTS.LIGHT_BOND_PROXIMITY_TICKS = 90`)
+// without hand-editing this file. Defaults below are unchanged from before this
+// refactor; see the determinism check in the commit that introduced this object.
+export const CONDUIT_CONSTANTS = {
+  // Light bond eligibility
+  LIGHT_BOND_PROXIMITY_TICKS: 180,   // ticks spent near this agent
+  LIGHT_BOND_FEAR_SPIKES_MAX: 4,
+  LIGHT_BOND_CURIOSITY_MIN: 0.65,
+  LIGHT_BOND_SIGNIFICANCE_PERCENTILE: 0.80,  // top 20% of population by significance
+  LIGHT_BOND_CHRONICLE_PAGES_MIN: 3,
 
-// ---- Dark bond eligibility ----
-const DARK_BOND_PROXIMITY_TICKS = 120;    // dark bonds form faster — the pull is stronger
-const DARK_BOND_FEAR_SPIKES_MAX = 8;      // dark-bond agents spike fear more, but Conduit still approaches
-const DARK_BOND_AGGRESSION_MIN = 0.70;
-const DARK_BOND_NOBILITY_MAX = 0.30;
+  // Dark bond eligibility
+  DARK_BOND_PROXIMITY_TICKS: 120,    // dark bonds form faster — the pull is stronger
+  DARK_BOND_FEAR_SPIKES_MAX: 8,      // dark-bond agents spike fear more, but Conduit still approaches
+  DARK_BOND_AGGRESSION_MIN: 0.70,
+  DARK_BOND_NOBILITY_MAX: 0.30,
+};
 
 // Significance multiplier for bonded agents
 const LIGHT_BOND_SIGNIFICANCE_MULTIPLIER = 1.45;
@@ -384,21 +392,21 @@ function checkBondEligibility(
 
     // ---- Dark bond check (takes priority — reveal what was always there) ----
     if (
-      rec.totalTicks >= DARK_BOND_PROXIMITY_TICKS &&
-      rec.fearSpikes <= DARK_BOND_FEAR_SPIKES_MAX &&
-      agent.traits.aggression >= DARK_BOND_AGGRESSION_MIN &&
-      agent.traits.nobility <= DARK_BOND_NOBILITY_MAX
+      rec.totalTicks >= CONDUIT_CONSTANTS.DARK_BOND_PROXIMITY_TICKS &&
+      rec.fearSpikes <= CONDUIT_CONSTANTS.DARK_BOND_FEAR_SPIKES_MAX &&
+      agent.traits.aggression >= CONDUIT_CONSTANTS.DARK_BOND_AGGRESSION_MIN &&
+      agent.traits.nobility <= CONDUIT_CONSTANTS.DARK_BOND_NOBILITY_MAX
     ) {
       return { agentId: agent.id, type: 'dark' };
     }
 
     // ---- Light bond check ----
     if (
-      rec.totalTicks >= LIGHT_BOND_PROXIMITY_TICKS &&
-      rec.fearSpikes <= LIGHT_BOND_FEAR_SPIKES_MAX &&
-      agent.traits.curiosity >= LIGHT_BOND_CURIOSITY_MIN &&
+      rec.totalTicks >= CONDUIT_CONSTANTS.LIGHT_BOND_PROXIMITY_TICKS &&
+      rec.fearSpikes <= CONDUIT_CONSTANTS.LIGHT_BOND_FEAR_SPIKES_MAX &&
+      agent.traits.curiosity >= CONDUIT_CONSTANTS.LIGHT_BOND_CURIOSITY_MIN &&
       (agent.lastChroniclePageMention !== null || agent.chronicleThreadActive) &&
-      significancePercentile(agent, state) >= LIGHT_BOND_SIGNIFICANCE_PERCENTILE
+      significancePercentile(agent, state) >= CONDUIT_CONSTANTS.LIGHT_BOND_SIGNIFICANCE_PERCENTILE
     ) {
       // Chronicle page count check — agent must have been noticed by the story
       const pagesMentioned = state.chroniclePages.filter((p) =>
@@ -407,7 +415,7 @@ function checkBondEligibility(
           state.eventLog.find((e) => e.id === eid)?.involvedAgents.includes(agent.id),
         ),
       ).length;
-      if (pagesMentioned >= LIGHT_BOND_CHRONICLE_PAGES_MIN) {
+      if (pagesMentioned >= CONDUIT_CONSTANTS.LIGHT_BOND_CHRONICLE_PAGES_MIN) {
         return { agentId: agent.id, type: 'light' };
       }
     }
