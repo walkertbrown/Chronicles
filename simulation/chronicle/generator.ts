@@ -231,11 +231,35 @@ and not on someone merely walking toward something.`;
       })),
       fullPage: result.prose,
       significantEvents: packages.flatMap((p) =>
-        p.primaryAgent.recentEvents.map((e) => e.tick.toString()),
+        p.primaryAgent.recentEvents.map((e) => e.id),
       ),
       generatedAt,
       order,
     };
+
+    // Anyone this page mentions — either as a thread's lead character or as a
+    // participant in one of the events cited in significantEvents — gets their
+    // "last noticed by the story" marker bumped to today. Feeds
+    // checkBondEligibility's light-bond "pagesMentioned >= 3" gate in
+    // companions/being.ts.
+    const mentionedAgentIds = new Set<string>();
+    for (const thread of entry.threads) {
+      mentionedAgentIds.add(thread.primaryAgentId);
+    }
+    for (const eid of entry.significantEvents) {
+      const ev = state.eventLog.find((e) => e.id === eid);
+      if (ev) {
+        for (const involvedId of ev.involvedAgents) {
+          mentionedAgentIds.add(involvedId);
+        }
+      }
+    }
+    for (const agentId of mentionedAgentIds) {
+      const agent = state.agents.find((a) => a.id === agentId);
+      if (agent) {
+        agent.lastChroniclePageMention = state.day;
+      }
+    }
 
     // Upsert by id so a regenerated day replaces its prior page in memory (and in
     // the checkpoint's chroniclePages array) instead of appending a duplicate.

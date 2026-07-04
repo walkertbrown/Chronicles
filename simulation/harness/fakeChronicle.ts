@@ -58,22 +58,37 @@ export function appendFakeChroniclePage(state: WorldState): void {
       prose: PLACEHOLDER_PROSE,
     })),
     fullPage: PLACEHOLDER_PROSE,
-    // Mirrors chronicle/generator.ts generateChronicle()'s exact construction —
-    // including a pre-existing quirk worth flagging rather than fixing (out of
-    // scope; not sim-mechanics this harness may change): this pushes tick
-    // NUMBERS (`e.tick.toString()`), while companions/being.ts
-    // checkBondEligibility looks these up via
-    // `state.eventLog.find(e => e.id === eid)` — an id-shaped string match
-    // against tick-number strings, which never matches. So that branch of the
-    // "pagesMentioned" check is dead in PRODUCTION too, not just here — only
-    // the primaryAgentId branch (checked above) ever actually counts a
-    // mention. Reproduced faithfully so this mode's behavior matches
-    // production's real (buggy) behavior, not an idealized fixed version.
+    // Mirrors chronicle/generator.ts generateChronicle()'s FIXED mention-
+    // tracking behavior: significantEvents holds real event ids (not tick
+    // numbers), so companions/being.ts checkBondEligibility's
+    // `state.eventLog.find(e => e.id === eid)` lookup actually matches.
     significantEvents: packages.flatMap((p) =>
-      p.primaryAgent.recentEvents.map((e) => e.tick.toString()),
+      p.primaryAgent.recentEvents.map((e) => e.id),
     ),
     generatedAt,
   };
+
+  // Mirrors generateChronicle()'s lastChroniclePageMention bump: anyone this
+  // page mentions — a thread's lead character, or a participant in one of the
+  // cited events — gets their "last noticed by the story" marker set to today.
+  const mentionedAgentIds = new Set<string>();
+  for (const thread of entry.threads) {
+    mentionedAgentIds.add(thread.primaryAgentId);
+  }
+  for (const eid of entry.significantEvents) {
+    const ev = state.eventLog.find((e) => e.id === eid);
+    if (ev) {
+      for (const involvedId of ev.involvedAgents) {
+        mentionedAgentIds.add(involvedId);
+      }
+    }
+  }
+  for (const agentId of mentionedAgentIds) {
+    const agent = state.agents.find((a) => a.id === agentId);
+    if (agent) {
+      agent.lastChroniclePageMention = state.day;
+    }
+  }
 
   state.chroniclePages.push(entry);
   state.lastChronicleGeneratedAt = generatedAt;

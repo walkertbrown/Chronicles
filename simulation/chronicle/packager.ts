@@ -64,7 +64,7 @@ export interface ThreadPackage {
     notableTraits: Array<{ name: string; value: number }>;
     recentTraitCrossings: string[];
 
-    recentEvents: Array<{ tick: number; description: string; weight: number }>;
+    recentEvents: Array<{ id: string; tick: number; description: string; weight: number }>;
     currentLocation: string;
     surroundingTerrain: string;
     nearbyAgentCount: number;
@@ -458,9 +458,10 @@ function collectRecentEvents(
   state: WorldState,
   agent: Agent,
   eventWindow: number,
-): Array<{ tick: number; description: string; weight: number }> {
+): Array<{ id: string; tick: number; description: string; weight: number }> {
   return getRecentEventsForAgent(state, agent.id, eventWindow)
     .map((event) => ({
+      id: event.id,
       tick: event.tick,
       description: event.description,
       weight: event.narrativeWeight,
