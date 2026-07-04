@@ -164,8 +164,34 @@ const COURAGE_STAND_THRESHOLD = 0.55;
 const NOBILITY_HELP_THRESHOLD = 0.5;
 const CURIOSITY_EXPLORE_THRESHOLD = 0.45;
 
-const CONFLICT_BASE_CHANCE = 0.015;
-const CONFLICT_AGGRESSION_SCALE = 0.15;
+// ============================================================
+// CONFLICT_CONSTANTS
+//
+// Tuning knobs for conflict frequency, violence escalation, and wound
+// damage, grouped into one exported, mutable object so the wind-tunnel
+// harness (simulation/harness/) can override them before a run — same
+// pattern as RELATIONSHIP_CONSTANTS (agents/relationships.ts) and
+// CONDUIT_CONSTANTS (companions/being.ts). Defaults below are unchanged
+// from before this refactor; see the determinism check in the commit that
+// introduced this object.
+// ============================================================
+
+export const CONFLICT_CONSTANTS = {
+  CONFLICT_BASE_CHANCE: 0.015,
+  CONFLICT_AGGRESSION_SCALE: 0.15,
+
+  VIOLENCE_BASE_CHANCE: 0.10,
+  VIOLENCE_AGGRESSION_THRESHOLD: 0.6,
+  VIOLENCE_AGGRESSION_SCALE: 0.5,
+  VIOLENCE_RIVAL_FEUD_BONUS: 0.20,
+  VIOLENCE_COURAGE_MITIGATION: 0.4,
+
+  DAMAGE_BASE_MIN: 0.12,
+  DAMAGE_BASE_RANGE: 0.10,
+  DAMAGE_AGGRESSION_BASE: 0.8,
+  DAMAGE_AGGRESSION_SCALE: 0.4,
+  DAMAGE_SPEAR_MULTIPLIER: 1.5,
+};
 
 const STEER_FATIGUE_MAX = 0.8;
 const STEER_FEAR_MAX = 0.7;
@@ -581,8 +607,8 @@ function shouldConflict(agent: Agent, state: WorldState, rng: () => number): boo
   if (others.length === 0) return false;
 
   const chance =
-    CONFLICT_BASE_CHANCE +
-    (agent.traits.aggression - 0.5) * CONFLICT_AGGRESSION_SCALE;
+    CONFLICT_CONSTANTS.CONFLICT_BASE_CHANCE +
+    (agent.traits.aggression - 0.5) * CONFLICT_CONSTANTS.CONFLICT_AGGRESSION_SCALE;
   return rng() < chance;
 }
 
@@ -1175,17 +1201,21 @@ function actionConflict(
   const rivalRel = winner.relationships.find(
     (rel) => rel.agentId === loser.id && rel.bond === BondType.Rival,
   );
-  const rivalFeudBonus = rivalRel !== undefined ? 0.20 : 0;
+  const rivalFeudBonus = rivalRel !== undefined ? CONFLICT_CONSTANTS.VIOLENCE_RIVAL_FEUD_BONUS : 0;
   const baseViolenceChance =
-    0.10 +
-    Math.max(0, winner.traits.aggression - 0.6) * 0.5 +
+    CONFLICT_CONSTANTS.VIOLENCE_BASE_CHANCE +
+    Math.max(0, winner.traits.aggression - CONFLICT_CONSTANTS.VIOLENCE_AGGRESSION_THRESHOLD) *
+      CONFLICT_CONSTANTS.VIOLENCE_AGGRESSION_SCALE +
     rivalFeudBonus;
-  const violenceChance = baseViolenceChance * (1 - loser.traits.courage * 0.4);
+  const violenceChance =
+    baseViolenceChance * (1 - loser.traits.courage * CONFLICT_CONSTANTS.VIOLENCE_COURAGE_MITIGATION);
 
   if (rng() < violenceChance) {
     const spear = findTool(winner, ItemType.Spear);
-    let damage = (0.12 + rng() * 0.10) * (0.8 + winner.traits.aggression * 0.4);
-    if (spear !== undefined) damage *= 1.5;
+    let damage =
+      (CONFLICT_CONSTANTS.DAMAGE_BASE_MIN + rng() * CONFLICT_CONSTANTS.DAMAGE_BASE_RANGE) *
+      (CONFLICT_CONSTANTS.DAMAGE_AGGRESSION_BASE + winner.traits.aggression * CONFLICT_CONSTANTS.DAMAGE_AGGRESSION_SCALE);
+    if (spear !== undefined) damage *= CONFLICT_CONSTANTS.DAMAGE_SPEAR_MULTIPLIER;
     loser.healthScore = Math.max(0, loser.healthScore - damage);
     loser.lastViolenceTick = state.tick;
     loser.lastAttackerId = winner.id;
