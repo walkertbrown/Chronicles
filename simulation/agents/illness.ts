@@ -14,21 +14,32 @@ import { getTile, manhattanDistance } from '../world/tiles.js';
 // Tuning knobs, grouped into one exported, mutable object so the
 // wind-tunnel harness (simulation/harness/) can override them before a run —
 // same pattern as RELATIONSHIP_CONSTANTS/CONDUIT_CONSTANTS/CONFLICT_CONSTANTS.
-// Defaults below are unchanged from before this refactor; see the
-// determinism check in the commit that introduced this object.
+//
+// INFECTION_EXPOSURE_CHANCE, INFECTION_PROXIMITY_CHANCE, WORSEN_FATIGUE_MIN,
+// WORSEN_HUNGER_MIN, SEVERITY_WORSEN_RATE, SEVERITY_HEALTH_IMPACT_THRESHOLD,
+// and SEVERITY_HEALTH_DRAIN_RATE were retuned 2026-07 after wind-tunnel
+// confirmation at 20 seeds: combined with the conflict retune in
+// actions.ts and the predator retune in predators.ts, this makes illness a
+// real, historically-plausible plurality cause of death (~48% of deaths)
+// instead of a near-nonexistent one, without requiring extreme ambient
+// infection rates — the old WORSEN thresholds required both hunger AND
+// fatigue to already be severe before illness could ever progress toward
+// lethal, which combined with a worsen rate barely faster than natural
+// recovery meant illness almost never actually killed anyone. See
+// simulation/harness/results/ and the commit that applied this retune.
 export const ILLNESS_CONSTANTS = {
   INFECTION_WATER_CHANCE: 0.003,
   INFECTION_WATER_LOW_RESOURCE: 0.008,
-  INFECTION_EXPOSURE_CHANCE: 0.001,
-  INFECTION_PROXIMITY_CHANCE: 0.002,
+  INFECTION_EXPOSURE_CHANCE: 0.005,
+  INFECTION_PROXIMITY_CHANCE: 0.01,
   INFECTION_WOUND_CHANCE: 0.08,
 
-  SEVERITY_WORSEN_RATE: 0.004,
+  SEVERITY_WORSEN_RATE: 0.05,
   SEVERITY_NATURAL_RECOVER_RATE: 0.003,
   SEVERITY_HEALER_RECOVER_RATE: 0.012,
   SEVERITY_HIGH_ENDURANCE_BONUS: 0.002,
-  SEVERITY_HEALTH_IMPACT_THRESHOLD: 0.7,
-  SEVERITY_HEALTH_DRAIN_RATE: 0.008,
+  SEVERITY_HEALTH_IMPACT_THRESHOLD: 0.25,
+  SEVERITY_HEALTH_DRAIN_RATE: 0.02,
 
   ILLNESS_FATIGUE_MULTIPLIER_MIN: 1.2,
   ILLNESS_FATIGUE_MULTIPLIER_MAX: 2.0,
@@ -39,8 +50,8 @@ export const ILLNESS_CONSTANTS = {
   HEALER_SKILL_THRESHOLD: 0.3,
   EXPOSURE_ENDURANCE_MAX: 0.4,
   EXPOSURE_FATIGUE_MIN: 0.7,
-  WORSEN_FATIGUE_MIN: 0.8,
-  WORSEN_HUNGER_MIN: 0.6,
+  WORSEN_FATIGUE_MIN: 0.5,
+  WORSEN_HUNGER_MIN: 0.35,
   LOW_WATER_RESOURCE: 0.2,
 };
 

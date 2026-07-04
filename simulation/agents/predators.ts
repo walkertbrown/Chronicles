@@ -13,8 +13,14 @@ import { getTile, manhattanDistance } from '../world/tiles.js';
 // Tuning knobs, grouped into one exported, mutable object so the
 // wind-tunnel harness (simulation/harness/) can override them before a run —
 // same pattern as RELATIONSHIP_CONSTANTS/CONDUIT_CONSTANTS/CONFLICT_CONSTANTS/
-// ILLNESS_CONSTANTS. Defaults below are unchanged from before this refactor;
-// see the determinism check in the commit that introduced this object.
+// ILLNESS_CONSTANTS.
+//
+// PREDATOR_BASE_FOREST/MOUNTAIN/RUIN were retuned 2026-07 (roughly 3x each)
+// after wind-tunnel confirmation at 20 seeds: combined with the conflict
+// retune in actions.ts and the illness retune in illness.ts, this gives
+// predator attacks a real (~11% of deaths) but minor share of mortality
+// instead of a negligible one. See simulation/harness/results/ and the
+// commit that applied this retune.
 //
 // Base per-tick attack probability by terrain type flattened into three
 // scalar keys (the harness's constants registry only supports flat
@@ -22,9 +28,9 @@ import { getTile, manhattanDistance } from '../world/tiles.js';
 // (Plain, Coast, River) are absent — tickPredatorThreat returns immediately
 // for those, so no entry is needed.
 export const PREDATOR_CONSTANTS = {
-  PREDATOR_BASE_FOREST: 0.004,
-  PREDATOR_BASE_MOUNTAIN: 0.006,
-  PREDATOR_BASE_RUIN: 0.010,
+  PREDATOR_BASE_FOREST: 0.012,
+  PREDATOR_BASE_MOUNTAIN: 0.018,
+  PREDATOR_BASE_RUIN: 0.03,
 
   // Solo wanderers far from home face up to 2× the base risk.
   DISTANCE_SCALE_MAX: 2.0,

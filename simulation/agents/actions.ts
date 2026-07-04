@@ -177,14 +177,20 @@ const CURIOSITY_EXPLORE_THRESHOLD = 0.45;
 // damage, grouped into one exported, mutable object so the wind-tunnel
 // harness (simulation/harness/) can override them before a run — same
 // pattern as RELATIONSHIP_CONSTANTS (agents/relationships.ts) and
-// CONDUIT_CONSTANTS (companions/being.ts). Defaults below are unchanged
-// from before this refactor; see the determinism check in the commit that
-// introduced this object.
+// CONDUIT_CONSTANTS (companions/being.ts).
+//
+// CONFLICT_BASE_CHANCE/CONFLICT_AGGRESSION_SCALE were retuned 2026-07 from
+// 0.015/0.15 to the values below after wind-tunnel confirmation at 20
+// seeds: this pair, combined with the illness/predator retune in
+// illness.ts/predators.ts, brings total mortality to ~20%/yr (was ~41%,
+// ~92% violence) with a historically-grounded cause mix (violence ~41%,
+// illness ~48%, predator ~11% — no single cause dominant). See
+// simulation/harness/results/ and the commit that applied this retune.
 // ============================================================
 
 export const CONFLICT_CONSTANTS = {
-  CONFLICT_BASE_CHANCE: 0.015,
-  CONFLICT_AGGRESSION_SCALE: 0.15,
+  CONFLICT_BASE_CHANCE: 0.009,
+  CONFLICT_AGGRESSION_SCALE: 0.09,
 
   VIOLENCE_BASE_CHANCE: 0.10,
   VIOLENCE_AGGRESSION_THRESHOLD: 0.6,
