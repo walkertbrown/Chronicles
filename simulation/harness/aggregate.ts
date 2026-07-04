@@ -65,10 +65,13 @@ export interface AggregateStats {
   artifactsFound: NumericStat;
   firstRelocationDay: NumericStat;
   familiesRelocated: NumericStat;
+  expeditionsLaunched: NumericStat;
+  expeditionsReturned: NumericStat;
   northSeedCount: number; // seeds that ever sent someone at/below NORTH_THRESHOLD_Y
   deathSeedCount: number; // seeds that recorded at least one death
   artifactSeedCount: number; // seeds that found at least one artifact
   relocationSeedCount: number; // seeds that saw at least one family relocate
+  expeditionSeedCount: number; // seeds that launched at least one ruin expedition
 }
 
 export function computeAggregateStats(metricsList: SeedMetrics[], days: number): AggregateStats {
@@ -102,12 +105,15 @@ export function computeAggregateStats(metricsList: SeedMetrics[], days: number):
     artifactsFound: computeStat(metricsList.map((m) => m.artifactsFound)),
     firstRelocationDay: computeStat(metricsList.map((m) => m.firstRelocationDay)),
     familiesRelocated: computeStat(metricsList.map((m) => m.familiesRelocated)),
+    expeditionsLaunched: computeStat(metricsList.map((m) => m.expeditionsLaunched)),
+    expeditionsReturned: computeStat(metricsList.map((m) => m.expeditionsReturned)),
     northSeedCount: metricsList.filter(
       (m) => m.maxDistanceNorth !== null && m.maxDistanceNorth <= NORTH_THRESHOLD_Y,
     ).length,
     deathSeedCount: metricsList.filter((m) => m.deaths > 0).length,
     artifactSeedCount: metricsList.filter((m) => m.artifactsFound > 0).length,
     relocationSeedCount: metricsList.filter((m) => m.familiesRelocated > 0).length,
+    expeditionSeedCount: metricsList.filter((m) => m.expeditionsLaunched > 0).length,
   };
 }
 
@@ -225,6 +231,15 @@ export function buildGateVerdict(
       totalSeeds,
       `(${stats.relocationSeedCount}/${totalSeeds} seeds saw ≥1 family relocate; median day ${stats.firstRelocationDay.median})`,
       `(0/${totalSeeds} seeds relocated a family in ${days} days) ← investigate`,
+    ),
+  );
+  lines.push(
+    gate(
+      'ruin expeditions',
+      stats.expeditionSeedCount,
+      totalSeeds,
+      `(${stats.expeditionSeedCount}/${totalSeeds} seeds launched ≥1 expedition; median launched ${stats.expeditionsLaunched.median}, returned ${stats.expeditionsReturned.median})`,
+      `(0/${totalSeeds} seeds launched a ruin expedition in ${days} days) ← investigate`,
     ),
   );
 

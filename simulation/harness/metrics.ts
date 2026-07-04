@@ -69,6 +69,9 @@ export class SeedMetricsCollector {
   private familiesRelocated = 0;
   private firstRelocationDay: number | null = null;
 
+  private expeditionsLaunched = 0;
+  private expeditionsReturned = 0;
+
   constructor(seed: number) {
     this.seed = seed;
   }
@@ -104,6 +107,12 @@ export class SeedMetricsCollector {
         case EventType.HamletFounded:
           this.familiesRelocated += 1;
           if (this.firstRelocationDay === null) this.firstRelocationDay = day;
+          break;
+        case EventType.RuinExpeditionBegan:
+          this.expeditionsLaunched += 1;
+          break;
+        case EventType.RuinExpeditionReturned:
+          this.expeditionsReturned += 1;
           break;
         default:
           break;
@@ -206,6 +215,8 @@ export class SeedMetricsCollector {
       artifactsFound: this.artifactsFound,
       firstRelocationDay: this.firstRelocationDay,
       familiesRelocated: this.familiesRelocated,
+      expeditionsLaunched: this.expeditionsLaunched,
+      expeditionsReturned: this.expeditionsReturned,
       populationSamples: this.populationSamples,
     };
   }

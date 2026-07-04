@@ -36,6 +36,12 @@ const NARRATIVE_WEIGHTS: Record<EventType, number> = {
   [EventType.SourceAwakened]: 0.98,   // the door beyond the ruins opens — the largest beat there is
   [EventType.SourceShifted]: 0.95,    // control of the source flips light↔dark
   [EventType.Conception]: 0.55,       // a pair bond conceives — quiet but chronicle-worthy
+  // Ruin expedition journey bookends (agents/ruinExpedition.ts) — moderate
+  // significance, well below the migration/hamlet journey events (0.9+):
+  // most expeditions find nothing, and the find itself is already covered by
+  // the higher-weight ArtifactFound event above.
+  [EventType.RuinExpeditionBegan]: 0.5,
+  [EventType.RuinExpeditionReturned]: 0.55,
 };
 
 // ============================================================

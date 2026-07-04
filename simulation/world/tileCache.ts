@@ -487,6 +487,15 @@ export function computeSourcePosition(seed: number): { x: number; y: number } {
   };
 }
 
+// The ruin cluster itself — mirrors computeSourcePosition's derivation exactly
+// (same deterministic feature RNG, same seed), so a caller (agents/
+// ruinExpedition.ts) can enumerate the actual Terrain.Ruin tiles inside the
+// returned box with a small bounded scan rather than searching the whole map.
+export function computeRuinCenter(seed: number): { cx: number; cy: number; radius: number } {
+  const { ruinCenter } = computeWorldFeatures(seed);
+  return { cx: ruinCenter.cx, cy: ruinCenter.cy, radius: ruinCenter.radius };
+}
+
 export function createTileCache(seed: number): TileCacheImpl {
   const cache = new TileCacheImpl(seed);
 

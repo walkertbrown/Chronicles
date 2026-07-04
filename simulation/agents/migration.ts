@@ -126,6 +126,14 @@ function isMigrationEligible(agent: Agent, partner: Agent, state: WorldState): b
     return false;
   }
   if (!hasShelterAtCamp(agent, state) && !hasShelterAtCamp(partner, state)) return false;
+  // Mutual exclusion with the ruin expedition (agents/ruinExpedition.ts): an
+  // agent should never be doing both a family relocation and a ruin trek at
+  // once. ruinExpedition's own trigger already refuses an agent mid-migration;
+  // this is the other direction — refuse starting a migration for either
+  // partner while one of them is already off chasing the rumor of the ruins.
+  // A no-op check on every agent that has never touched the (rare, optional)
+  // ruinExpedition field, so it doesn't disturb already-tuned baselines.
+  if (agent.ruinExpedition != null || partner.ruinExpedition != null) return false;
   return isHomeCrowded(agent, state);
 }
 
@@ -276,7 +284,11 @@ function tileOpen(x: number, y: number, state: WorldState): boolean {
 // THIS tick, but it can clear a single-tile obstacle so the preferred axis
 // opens up again next tick; a temporary uptick is fine because stuckTicks
 // tracks the running BEST distance ever reached, not tick-over-tick delta.
-function attemptMigrationStep(agent: Agent, state: WorldState, dest: { x: number; y: number }): boolean {
+// Exported so agents/ruinExpedition.ts can reuse this exact stepper (outbound,
+// search-hop, and return legs all use it) instead of reimplementing the
+// repick-on-block/stuck-timeout mover and risking reintroducing the
+// Manhattan-distance-tie stall bug this function was written to fix.
+export function attemptMigrationStep(agent: Agent, state: WorldState, dest: { x: number; y: number }): boolean {
   const fx = agent.position.x;
   const fy = agent.position.y;
   const preferred = stepToward(fx, fy, dest.x, dest.y);
