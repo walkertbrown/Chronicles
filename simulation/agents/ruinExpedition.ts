@@ -35,12 +35,17 @@
 // either partner while one already has an active ruinExpedition). An agent is
 // never doing both at once.
 //
-// NO BOND GATE: any generation, any role, any bond status can catch this pull
-// — a pair-bonded or Conduit-bonded agent simply leaves their partner for the
-// trek's duration, same as any other long solo action already in the sim.
+// UNBONDED-ONLY GATE (added after the first wind-tunnel pass): the initial
+// no-bond-gate design let pair-bonded reproductive adults catch the pull too,
+// splitting couples for month-long treks — measured at a ~60% conceptions/
+// births drop and a ~4x predator-death increase across 20 seeds vs. baseline.
+// Restored the same "unbonded" gate exploration.ts's wanderlustExpresses
+// already uses (no active Pair relationship, no Conduit bond) so this pull
+// only ever draws away agents who aren't mid-reproduction or mid-pilgrimage.
+// Still no role/generation restriction otherwise.
 
 import type { Agent, WorldState } from '@shared/types.js';
-import { EventType, Terrain } from '@shared/types.js';
+import { BondType, EventType, Terrain } from '@shared/types.js';
 import { OutcomeType, type TickOutcome } from './outcomes.js';
 import { logEvent } from '../events/log.js';
 import { computeRuinCenter } from '../world/tileCache.js';
@@ -53,7 +58,12 @@ import { getTile, manhattanDistance, markTileDirty } from '../world/tiles.js';
 // ============================================================
 
 export const RUIN_RUMOR_CONSTANTS = {
-  RUIN_RUMOR_BASE_CHANCE: 0.0002,
+  // Retuned 2026-07 after the first wind-tunnel pass: 0.0002 produced ~40
+  // expeditions/seed/year (far more than "rare and special") and, combined
+  // with the missing bond gate, a 68% population collapse relative to
+  // baseline. Dropped an order of magnitude; see the bond gate below for the
+  // other half of that fix.
+  RUIN_RUMOR_BASE_CHANCE: 0.00002,
   RUIN_RUMOR_CURIOSITY: 0.65,
   RUIN_RUMOR_MIN_AGE: 16,               // mirrors births.ts BIRTH_MIN_AGE (adulthood); its own tunable knob
   RUIN_RUMOR_MAX_SURVIVAL_STRESS: 0.50, // hunger/fatigue/fear must all be below this — to trigger AND to keep stepping
@@ -122,10 +132,18 @@ function getRuinClusterTiles(state: WorldState): Array<{ x: number; y: number }>
 // ELIGIBILITY + TRIGGER
 // ============================================================
 
+function isUnbonded(agent: Agent): boolean {
+  const hasPairBond = agent.relationships.some((rel) => rel.bond === BondType.Pair);
+  if (hasPairBond) return false;
+  if (agent.conduitId !== null) return false;
+  return true;
+}
+
 function isRuinRumorEligible(agent: Agent): boolean {
   if (agent.traits.curiosity < RUIN_RUMOR_CONSTANTS.RUIN_RUMOR_CURIOSITY) return false;
   if (agent.age < RUIN_RUMOR_CONSTANTS.RUIN_RUMOR_MIN_AGE) return false;
   if (isInAcuteSurvivalStress(agent)) return false;
+  if (!isUnbonded(agent)) return false;              // no splitting up pairs/pilgrims — see file header
   if (hasActiveRuinExpedition(agent)) return false; // defensive — actions.ts already gates this
   if (hasActiveMigration(agent)) return false;       // mutual exclusion, see file header
   return true;
