@@ -72,6 +72,7 @@ export enum EventType {
   ArtifactImprinted = 'artifact_imprinted',
   TraitThreshold = 'trait_threshold',
   Migration = 'migration',
+  HamletFounded = 'hamlet_founded',   // a family's multi-tick trek ends — a new hamlet is founded
   ResourceCrisis = 'resource_crisis',
   IllnessBegan = 'illness_began',
   IllnessRecovered = 'illness_recovered',
@@ -268,6 +269,17 @@ export interface Agent {
     fatherName: string
     conceivedTick: number
   } | null                           // null when not pregnant; set at conception, cleared at delivery
+
+  // Present only while this agent is mid-trek relocating to a new hamlet (see
+  // simulation/agents/migration.ts) — absent/null for everyone else, the same
+  // lazy-optional pattern as home/inventory. destX/destY are the target tile;
+  // bestDist/stuckTicks track trek progress for the stuck-timeout bailout.
+  migration?: {
+    destX: number
+    destY: number
+    bestDist: number
+    stuckTicks: number
+  } | null
 }
 
 // ============================================================

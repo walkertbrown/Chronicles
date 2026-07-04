@@ -25,6 +25,7 @@ const NARRATIVE_WEIGHTS: Record<EventType, number> = {
   [EventType.ArtifactImprinted]: 0.88,
   [EventType.TraitThreshold]: 0.72,
   [EventType.Migration]: 0.92,
+  [EventType.HamletFounded]: 0.9,
   [EventType.ResourceCrisis]: 0.68,
   [EventType.IllnessBegan]: 0.62,
   [EventType.IllnessRecovered]: 0.45,

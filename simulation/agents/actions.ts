@@ -9,6 +9,12 @@ import { OutcomeType, type TickOutcome } from './outcomes.js';
 import { getRelationship, socialRestorationValue } from './relationships.js';
 import { logEvent } from '../events/log.js';
 import { wanderlustExpresses, actionVenture, agentIsDwelling } from './exploration.js';
+import {
+  hasActiveMigration,
+  shouldPauseMigrationForSurvival,
+  actionMigrateStep,
+  tryBeginMigration,
+} from './migration.js';
 import { COAST_ROW } from '../world/generator.js';
 import {
   findBestWaterTile,
@@ -1825,6 +1831,10 @@ function describeOutcome(outcome: TickOutcome, agent: Agent): string {
       if (outcome.partial) return 'Scouting the interior — path blocked';
       return 'Scouting the interior';
 
+    case OutcomeType.Migrated:
+      if (!outcome.partial) return 'Founding a new hearth';
+      return outcome.success ? 'Traveling to a new hearth' : 'Searching for a way around the ground ahead';
+
     case OutcomeType.Wandered:
       return agent.drives.grief > 0.6 ? 'Moving without direction' : 'Wandering';
 
@@ -1981,6 +1991,25 @@ export function executeAgentAction(
     outcomes.push(o);
     agent.currentAction = describeOutcome(o, agent);
     return;
+  }
+
+  // Family migration: a trekking family member steps toward their new hearth.
+  // Disjoint from shouldHeedSourceCall above (migrating families are pair-
+  // bonded, not Conduit-bonded). Survival still comes first — acute stress
+  // falls through to the ordinary drive-based dispatch below instead of
+  // forcing a step, mirroring the pilgrimage's own gating.
+  if (hasActiveMigration(agent)) {
+    if (!shouldPauseMigrationForSurvival(agent)) {
+      const o = actionMigrateStep(agent, state, rng);
+      outcomes.push(o);
+      agent.currentAction = describeOutcome(o, agent);
+      return;
+    }
+  } else {
+    // No-op unless this agent is the eligible, smaller-id partner of a settled,
+    // crowded, curious pair. Never moves anyone or logs an event this tick —
+    // it only writes markers; the trek begins next tick.
+    tryBeginMigration(agent, state, rng);
   }
 
   const drive = getDominantDrive(agent);

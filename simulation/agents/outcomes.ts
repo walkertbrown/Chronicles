@@ -43,6 +43,9 @@ export enum OutcomeType {
 
   // Exploration foray
   Ventured = 'ventured',            // Agent is on a wanderlust-driven inland foray
+
+  // Family migration
+  Migrated = 'migrated',            // Agent is mid-trek relocating to (or just founded) a new hamlet
 }
 
 export interface TickOutcome {
