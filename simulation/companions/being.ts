@@ -86,6 +86,19 @@ export const CONDUIT_CONSTANTS = {
   DARK_BOND_FEAR_SPIKES_MAX: 8,      // dark-bond agents spike fear more, but Conduit still approaches
   DARK_BOND_AGGRESSION_MIN: 0.70,
   DARK_BOND_NOBILITY_MAX: 0.30,
+
+  // Availability floor: no bond (light or dark) can form before this tick,
+  // regardless of how eligible a pair otherwise is. Proximity/fear-spike
+  // accumulation still happens normally before the floor — an already-
+  // qualifying pair simply bonds the moment the floor passes, rather than
+  // never being able to reach the threshold at all. This exists because
+  // loosening the eligibility constants above to raise ignition RELIABILITY
+  // also pulls the median ignition day EARLIER (a bigger eligible-pair pool
+  // means the first success across all seeds comes sooner) — the two don't
+  // decouple from constant-tuning alone. Default 0 = no floor (preserves
+  // pre-existing behavior). See the wind-tunnel pacing sweep that motivated
+  // this and the determinism check in the commit that introduced it.
+  CONDUIT_BOND_MIN_TICK: 0,
 };
 
 // Significance multiplier for bonded agents
@@ -385,6 +398,7 @@ function checkBondEligibility(
   state: WorldState,
 ): { agentId: string; type: 'light' | 'dark' } | null {
   if (conduit.bondedAgentId !== null) return null;
+  if (state.tick < CONDUIT_CONSTANTS.CONDUIT_BOND_MIN_TICK) return null;
 
   for (const rec of conduit.agentProximityHistory) {
     const agent = findAgentById(state, rec.agentId);
