@@ -63,9 +63,12 @@ export interface AggregateStats {
   illnessEvents: NumericStat;
   firstArtifactFoundDay: NumericStat;
   artifactsFound: NumericStat;
+  firstRelocationDay: NumericStat;
+  familiesRelocated: NumericStat;
   northSeedCount: number; // seeds that ever sent someone at/below NORTH_THRESHOLD_Y
   deathSeedCount: number; // seeds that recorded at least one death
   artifactSeedCount: number; // seeds that found at least one artifact
+  relocationSeedCount: number; // seeds that saw at least one family relocate
 }
 
 export function computeAggregateStats(metricsList: SeedMetrics[], days: number): AggregateStats {
@@ -97,11 +100,14 @@ export function computeAggregateStats(metricsList: SeedMetrics[], days: number):
     illnessEvents: computeStat(metricsList.map((m) => m.illnessEvents)),
     firstArtifactFoundDay: computeStat(metricsList.map((m) => m.firstArtifactFoundDay)),
     artifactsFound: computeStat(metricsList.map((m) => m.artifactsFound)),
+    firstRelocationDay: computeStat(metricsList.map((m) => m.firstRelocationDay)),
+    familiesRelocated: computeStat(metricsList.map((m) => m.familiesRelocated)),
     northSeedCount: metricsList.filter(
       (m) => m.maxDistanceNorth !== null && m.maxDistanceNorth <= NORTH_THRESHOLD_Y,
     ).length,
     deathSeedCount: metricsList.filter((m) => m.deaths > 0).length,
     artifactSeedCount: metricsList.filter((m) => m.artifactsFound > 0).length,
+    relocationSeedCount: metricsList.filter((m) => m.familiesRelocated > 0).length,
   };
 }
 
@@ -210,6 +216,15 @@ export function buildGateVerdict(
       totalSeeds,
       `(${stats.artifactSeedCount}/${totalSeeds} seeds; median firstArtifactFoundDay ${stats.firstArtifactFoundDay.median})`,
       `(0/${totalSeeds} seeds found an artifact in ${days} days) ← investigate`,
+    ),
+  );
+  lines.push(
+    gate(
+      'migration',
+      stats.relocationSeedCount,
+      totalSeeds,
+      `(${stats.relocationSeedCount}/${totalSeeds} seeds saw ≥1 family relocate; median day ${stats.firstRelocationDay.median})`,
+      `(0/${totalSeeds} seeds relocated a family in ${days} days) ← investigate`,
     ),
   );
 

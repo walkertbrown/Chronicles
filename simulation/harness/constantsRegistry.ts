@@ -1,9 +1,10 @@
 // simulation/harness/constantsRegistry.ts
 // Bridges --set/--sweep CLI overrides to the RELATIONSHIP_CONSTANTS,
 // CONDUIT_CONSTANTS, CONFLICT_CONSTANTS, ILLNESS_CONSTANTS,
-// PREDATOR_CONSTANTS, and POPULATION_CONSTANTS objects exported from sim
-// code (agents/relationships.ts, companions/being.ts, agents/actions.ts,
-// agents/illness.ts, agents/predators.ts, agents/initializer.ts). Those
+// PREDATOR_CONSTANTS, POPULATION_CONSTANTS, and MIGRATION_CONSTANTS objects
+// exported from sim code (agents/relationships.ts, companions/being.ts,
+// agents/actions.ts, agents/illness.ts, agents/predators.ts,
+// agents/initializer.ts, agents/migration.ts). Those
 // are process-wide mutable singletons: sim
 // functions read e.g. `RELATIONSHIP_CONSTANTS.PAIR_BOND_MIN_INTERACTIONS`
 // fresh on every call rather than capturing a local copy, so setting a
@@ -16,6 +17,7 @@ import { CONFLICT_CONSTANTS } from '../agents/actions.js';
 import { ILLNESS_CONSTANTS } from '../agents/illness.js';
 import { PREDATOR_CONSTANTS } from '../agents/predators.js';
 import { POPULATION_CONSTANTS } from '../agents/initializer.js';
+import { MIGRATION_CONSTANTS } from '../agents/migration.js';
 
 type ConstantsObject = Record<string, number>;
 
@@ -26,6 +28,7 @@ const REGISTRIES: ConstantsObject[] = [
   ILLNESS_CONSTANTS,
   PREDATOR_CONSTANTS,
   POPULATION_CONSTANTS,
+  MIGRATION_CONSTANTS,
 ];
 
 // Snapshot of the true defaults, captured once at process start before any

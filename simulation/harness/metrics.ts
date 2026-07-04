@@ -66,6 +66,9 @@ export class SeedMetricsCollector {
   private artifactsFound = 0;
   private firstArtifactFoundDay: number | null = null;
 
+  private familiesRelocated = 0;
+  private firstRelocationDay: number | null = null;
+
   constructor(seed: number) {
     this.seed = seed;
   }
@@ -97,6 +100,10 @@ export class SeedMetricsCollector {
           break;
         case EventType.IllnessBegan:
           this.illnessEvents += 1;
+          break;
+        case EventType.HamletFounded:
+          this.familiesRelocated += 1;
+          if (this.firstRelocationDay === null) this.firstRelocationDay = day;
           break;
         default:
           break;
@@ -197,6 +204,8 @@ export class SeedMetricsCollector {
       illnessEvents: this.illnessEvents,
       firstArtifactFoundDay: this.firstArtifactFoundDay,
       artifactsFound: this.artifactsFound,
+      firstRelocationDay: this.firstRelocationDay,
+      familiesRelocated: this.familiesRelocated,
       populationSamples: this.populationSamples,
     };
   }

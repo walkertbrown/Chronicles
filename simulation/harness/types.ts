@@ -76,6 +76,12 @@ export interface SeedMetrics {
   firstArtifactFoundDay: number | null;
   artifactsFound: number;
 
+  // EventType.HamletFounded — a family's multi-tick trek ends in a new
+  // settlement (simulation/agents/migration.ts). Distinct from the pre-existing
+  // migrations/EventType.Migration (the founding voyage's landing event).
+  firstRelocationDay: number | null;
+  familiesRelocated: number;
+
   populationSamples: number[]; // one entry per sample point, for an optional sparkline
 }
 
