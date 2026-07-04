@@ -33,6 +33,53 @@ function getApp(): admin.app.App {
   return admin.app();
 }
 
+// Extracted from writeCheckpoint so the exact same per-agent mapping used in
+// production can be exercised by a round-trip test without touching
+// Firestore (see scripts/checkpointRoundTrip.ts) — no behavior change.
+export function serializeAgentForCheckpoint(a: Agent) {
+  return {
+    id: a.id,
+    name: a.name,
+    familyName: a.familyName,
+    alive: a.alive,
+    age: a.age,
+    gender: a.gender,
+    generation: a.generation,
+    position: a.position,
+    home: a.home ?? a.position,
+    drives: a.drives,
+    traits: a.traits,
+    skills: a.skills,
+    significanceScore: a.significanceScore,
+    chronicleThreadActive: a.chronicleThreadActive,
+    chronicleChallenge: a.chronicleChallenge,
+    chronicleFade: a.chronicleFade,
+    illnessState: a.illnessState,
+    lineage: a.lineage,
+    foundingHistory: a.foundingHistory,
+    conduitId: a.conduitId,
+    conduitBondType: a.conduitBondType,
+    lastChroniclePageMention: a.lastChroniclePageMention,
+    healthScore: a.healthScore,
+    relationships: a.relationships,
+    recentEvents: a.recentEvents.slice(-10),
+    starvationTick: a.starvationTick,
+    starvationSurvivalTicks: a.starvationSurvivalTicks,
+    lastAteAtTick: a.lastAteAtTick,
+    lastDrankAtTick: a.lastDrankAtTick,
+    animalAttackTick: a.animalAttackTick,
+    lastViolenceTick: a.lastViolenceTick,
+    lastAttackerId: a.lastAttackerId,
+    pregnancy: a.pregnancy ?? null,
+    // Migration marker (agents/migration.ts) — present only on the handful of
+    // agents mid-trek. Without this, a family mid-trek at the exact tick a
+    // checkpoint is written would silently lose its migration state on the
+    // next restore: reverts to ordinary behavior wherever it happened to be,
+    // home stays at the old crowded camp, no hamlet ever founds, no error.
+    migration: a.migration ?? null,
+  };
+}
+
 export async function writeCheckpoint(state: WorldState): Promise<void> {
   try {
     const app = getApp();
@@ -48,41 +95,7 @@ export async function writeCheckpoint(state: WorldState): Promise<void> {
       ticksInCurrentSeason: state.ticksInCurrentSeason,
       lastCheckpoint: new Date().toISOString(),
       population: state.agents.filter((a) => a.alive).length,
-      agents: state.agents.map((a) => ({
-        id: a.id,
-        name: a.name,
-        familyName: a.familyName,
-        alive: a.alive,
-        age: a.age,
-        gender: a.gender,
-        generation: a.generation,
-        position: a.position,
-        home: a.home ?? a.position,
-        drives: a.drives,
-        traits: a.traits,
-        skills: a.skills,
-        significanceScore: a.significanceScore,
-        chronicleThreadActive: a.chronicleThreadActive,
-        chronicleChallenge: a.chronicleChallenge,
-        chronicleFade: a.chronicleFade,
-        illnessState: a.illnessState,
-        lineage: a.lineage,
-        foundingHistory: a.foundingHistory,
-        conduitId: a.conduitId,
-        conduitBondType: a.conduitBondType,
-        lastChroniclePageMention: a.lastChroniclePageMention,
-        healthScore: a.healthScore,
-        relationships: a.relationships,
-        recentEvents: a.recentEvents.slice(-10),
-        starvationTick: a.starvationTick,
-        starvationSurvivalTicks: a.starvationSurvivalTicks,
-        lastAteAtTick: a.lastAteAtTick,
-        lastDrankAtTick: a.lastDrankAtTick,
-        animalAttackTick: a.animalAttackTick,
-        lastViolenceTick: a.lastViolenceTick,
-        lastAttackerId: a.lastAttackerId,
-        pregnancy: a.pregnancy ?? null,
-      })),
+      agents: state.agents.map(serializeAgentForCheckpoint),
       vessel: state.vessel,
       conduits: state.conduits,
       source: state.source,

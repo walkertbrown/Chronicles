@@ -1,0 +1,125 @@
+// simulation/scripts/checkpointRoundTrip.ts
+// Lightweight round-trip check for the checkpoint persistence path. The
+// wind-tunnel harness never exercises writeCheckpoint/loadCheckpoint (no
+// Firestore, by design — see harness/run.ts's header comment), so a real
+// checkpoint bug (a field silently missing from the persisted agent shape)
+// is invisible to every sim-only test. This script proves the field survives
+// the exact JSON+gzip transformation writeCheckpoint/loadCheckpoint use,
+// without touching Firestore itself: it calls the real, exported
+// serializeAgentForCheckpoint (the same function production uses), gzips +
+// JSON-round-trips the result, and asserts the migration marker survives
+// intact for a mid-trek agent and reads back as null for a settled one.
+//
+// Run with: node dist/simulation/scripts/checkpointRoundTrip.js (after `npm
+// run build`). Exits 0 on success, 1 on any failed assertion.
+
+import { gzipSync, gunzipSync } from 'node:zlib';
+import type { Agent } from '@shared/types.js';
+import { serializeAgentForCheckpoint } from '../firebase.js';
+
+function makeFakeAgent(overrides: Partial<Agent> = {}): Agent {
+  const base: Agent = {
+    id: 'agent_0',
+    name: 'Test',
+    familyName: 'Testerson',
+    gender: 'female',
+    age: 30,
+    healthScore: 1.0,
+    generation: 0,
+    alive: true,
+    position: { x: 1490, y: 1400 },
+    home: { x: 1490, y: 1400 },
+    drives: {
+      hunger: 0.2,
+      fatigue: 0.2,
+      fear: 0.1,
+      socialNeed: 0.1,
+      grief: 0.05,
+      longing: 0.1,
+      wanderlust: 0.05,
+    },
+    traits: {
+      curiosity: 0.6,
+      courage: 0.5,
+      nobility: 0.5,
+      cunning: 0.5,
+      endurance: 0.5,
+      attraction: 0.5,
+      aggression: 0.4,
+      acuity: 0.5,
+      sociability: 0.6,
+    },
+    skills: { hunting: 0.3, gathering: 0.3, building: 0.3, fire: 0.3, healing: 0.3 },
+    inventory: { wood: 0, items: [] },
+    relationships: [],
+    lineage: { motherId: null, fatherId: null, children: [] },
+    foundingHistory: null,
+    conduitId: null,
+    conduitBondType: null,
+    currentAction: null,
+    significanceScore: 0,
+    chronicleThreadActive: false,
+    chronicleChallenge: 0,
+    chronicleFade: 0,
+    lastChroniclePageMention: null,
+    recentEvents: [],
+    starvationTick: null,
+    starvationSurvivalTicks: null,
+    lastAteAtTick: null,
+    lastDrankAtTick: null,
+    discoveredTileIds: [],
+    illnessState: null,
+    animalAttackTick: null,
+    lastViolenceTick: null,
+    lastAttackerId: null,
+    pregnancy: null,
+  };
+  return { ...base, ...overrides };
+}
+
+// Mirrors writeCheckpoint's blob construction and loadCheckpoint's blob
+// reconstruction exactly (gzip a JSON string; gunzip and JSON.parse it back).
+function roundTripThroughBlob<T>(value: T): T {
+  const blob = gzipSync(Buffer.from(JSON.stringify(value)));
+  return JSON.parse(gunzipSync(blob).toString('utf-8')) as T;
+}
+
+let failures = 0;
+function assertEqual(label: string, actual: unknown, expected: unknown): void {
+  const ok = JSON.stringify(actual) === JSON.stringify(expected);
+  console.log(`${ok ? 'PASS' : 'FAIL'} — ${label}`);
+  if (!ok) {
+    failures += 1;
+    console.log(`  expected: ${JSON.stringify(expected)}`);
+    console.log(`  actual:   ${JSON.stringify(actual)}`);
+  }
+}
+
+// ---- Case 1: a mid-trek agent — the exact bug scenario the tester found ----
+const migratingAgent = makeFakeAgent({
+  id: 'agent_5',
+  position: { x: 1480, y: 1350 },
+  migration: { destX: 1520, destY: 1200, bestDist: 42, stuckTicks: 7 },
+});
+const serializedMigrating = serializeAgentForCheckpoint(migratingAgent);
+const restoredMigrating = roundTripThroughBlob(serializedMigrating);
+
+assertEqual('mid-trek agent: migration field present after round trip', restoredMigrating.migration != null, true);
+assertEqual('mid-trek agent: destX survives', restoredMigrating.migration?.destX, 1520);
+assertEqual('mid-trek agent: destY survives', restoredMigrating.migration?.destY, 1200);
+assertEqual('mid-trek agent: bestDist survives', restoredMigrating.migration?.bestDist, 42);
+assertEqual('mid-trek agent: stuckTicks survives', restoredMigrating.migration?.stuckTicks, 7);
+assertEqual('mid-trek agent: id survives (sanity check on the wider round trip)', restoredMigrating.id, 'agent_5');
+assertEqual('mid-trek agent: position survives (sanity check)', restoredMigrating.position, { x: 1480, y: 1350 });
+
+// ---- Case 2: a settled (non-migrating) agent — migration must read back as
+// null, never undefined/missing, matching the documented "absent/null both
+// mean not migrating" contract with no backfill required. ----
+const settledAgent = makeFakeAgent({ id: 'agent_6' });
+const serializedSettled = serializeAgentForCheckpoint(settledAgent);
+const restoredSettled = roundTripThroughBlob(serializedSettled);
+
+assertEqual('settled agent: migration is explicitly null after round trip', restoredSettled.migration, null);
+
+console.log(failures === 0 ? '\nAll checkpoint round-trip checks passed.' : `\n${failures} checkpoint round-trip check(s) FAILED.`);
+process.exit(failures === 0 ? 0 : 1);
