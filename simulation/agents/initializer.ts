@@ -51,20 +51,55 @@ const FAMILY_NAMES = [
 
 // ============================================================
 // ROLE & POPULATION CONSTANTS
+//
+// Grouped into one exported, mutable object so the wind-tunnel harness
+// (simulation/harness/) can override TOTAL_AGENTS before a run — same
+// pattern as RELATIONSHIP_CONSTANTS/CONDUIT_CONSTANTS/CONFLICT_CONSTANTS/
+// ILLNESS_CONSTANTS/PREDATOR_CONSTANTS. Gender and role counts are derived
+// from TOTAL_AGENTS × ratio at generation time (see getMaleCount/
+// getRoleCounts below) rather than hardcoded, so they always sum exactly
+// to TOTAL_AGENTS at any population size — the ratios reproduce today's
+// exact 35/15 gender split and 12/28/2/8 role split at the default
+// TOTAL_AGENTS=50 (see the determinism check in the commit that introduced
+// this object). NEARLY_DIED_COUNT/MIN_NEARLY_DIED_OUTCASTS/
+// ELEVATED_PAIR_COUNT stay absolute (founding-story flavor counts, not
+// population-proportional — a bigger village doesn't need proportionally
+// more crossing casualties or shipboard romances).
 // ============================================================
 
-const ROLE_COUNTS: Record<FoundingRole, number> = {
-  [FoundingRole.Explorer]: 12,
-  [FoundingRole.Outcast]: 28,
-  [FoundingRole.Leader]: 2,
-  [FoundingRole.Survivor]: 8,
+export const POPULATION_CONSTANTS = {
+  TOTAL_AGENTS: 50,
+  MALE_RATIO: 0.7,
+  EXPLORER_RATIO: 0.24,
+  LEADER_RATIO: 0.04,
+  SURVIVOR_RATIO: 0.16,
+  // Outcast is the implicit remainder: TOTAL_AGENTS - explorer - leader - survivor.
+  NEARLY_DIED_COUNT: 6,
+  MIN_NEARLY_DIED_OUTCASTS: 3,
+  ELEVATED_PAIR_COUNT: 7,
 };
 
-const TOTAL_AGENTS = 50;
-const MALE_COUNT = 35;
-const FEMALE_COUNT = 15;
-const NEARLY_DIED_COUNT = 6;
-const MIN_NEARLY_DIED_OUTCASTS = 3;
+function getMaleCount(): number {
+  return Math.round(POPULATION_CONSTANTS.TOTAL_AGENTS * POPULATION_CONSTANTS.MALE_RATIO);
+}
+
+function getFemaleCount(): number {
+  return POPULATION_CONSTANTS.TOTAL_AGENTS - getMaleCount();
+}
+
+function getRoleCounts(): Record<FoundingRole, number> {
+  const total = POPULATION_CONSTANTS.TOTAL_AGENTS;
+  const explorer = Math.round(total * POPULATION_CONSTANTS.EXPLORER_RATIO);
+  const leader = Math.round(total * POPULATION_CONSTANTS.LEADER_RATIO);
+  const survivor = Math.round(total * POPULATION_CONSTANTS.SURVIVOR_RATIO);
+  const outcast = total - explorer - leader - survivor;
+  return {
+    [FoundingRole.Explorer]: explorer,
+    [FoundingRole.Outcast]: outcast,
+    [FoundingRole.Leader]: leader,
+    [FoundingRole.Survivor]: survivor,
+  };
+}
 
 const TRAIT_BASE = 0.4;
 const TRAIT_VARIATION = 0.15;
@@ -80,8 +115,6 @@ const SKILL_MAX = 0.2;
 
 const VESSEL_WIDTH = 3;
 const VESSEL_HEIGHT = 2;
-
-const ELEVATED_PAIR_COUNT = 7;
 
 type RNG = () => number;
 type Gender = 'male' | 'female';
@@ -314,7 +347,7 @@ function pickFoundingName(
 
 function buildRoleList(rng: RNG): FoundingRole[] {
   const roles: FoundingRole[] = [];
-  for (const [role, count] of Object.entries(ROLE_COUNTS) as Array<[FoundingRole, number]>) {
+  for (const [role, count] of Object.entries(getRoleCounts()) as Array<[FoundingRole, number]>) {
     for (let i = 0; i < count; i++) {
       roles.push(role);
     }
@@ -324,14 +357,14 @@ function buildRoleList(rng: RNG): FoundingRole[] {
 
 function buildGenderList(rng: RNG): Gender[] {
   const genders: Gender[] = [
-    ...Array.from({ length: MALE_COUNT }, () => 'male' as const),
-    ...Array.from({ length: FEMALE_COUNT }, () => 'female' as const),
+    ...Array.from({ length: getMaleCount() }, () => 'male' as const),
+    ...Array.from({ length: getFemaleCount() }, () => 'female' as const),
   ];
   return shuffle(genders, rng);
 }
 
 function assignNearlyDiedFlags(roles: FoundingRole[], rng: RNG): boolean[] {
-  const flags = Array.from({ length: TOTAL_AGENTS }, () => false);
+  const flags = Array.from({ length: POPULATION_CONSTANTS.TOTAL_AGENTS }, () => false);
   const outcastIndices: number[] = [];
   const otherIndices: number[] = [];
 
@@ -346,7 +379,7 @@ function assignNearlyDiedFlags(roles: FoundingRole[], rng: RNG): boolean[] {
   const shuffledOutcasts = shuffle(outcastIndices, rng);
   const shuffledOthers = shuffle(otherIndices, rng);
 
-  const outcastPicks = Math.min(MIN_NEARLY_DIED_OUTCASTS, shuffledOutcasts.length);
+  const outcastPicks = Math.min(POPULATION_CONSTANTS.MIN_NEARLY_DIED_OUTCASTS, shuffledOutcasts.length);
   for (let i = 0; i < outcastPicks; i++) {
     const index = shuffledOutcasts[i];
     if (index !== undefined) flags[index] = true;
@@ -354,7 +387,7 @@ function assignNearlyDiedFlags(roles: FoundingRole[], rng: RNG): boolean[] {
 
   let assigned = outcastPicks;
   for (const index of shuffledOutcasts.slice(outcastPicks)) {
-    if (assigned >= NEARLY_DIED_COUNT) break;
+    if (assigned >= POPULATION_CONSTANTS.NEARLY_DIED_COUNT) break;
     if (index !== undefined) {
       flags[index] = true;
       assigned++;
@@ -362,7 +395,7 @@ function assignNearlyDiedFlags(roles: FoundingRole[], rng: RNG): boolean[] {
   }
 
   for (const index of shuffledOthers) {
-    if (assigned >= NEARLY_DIED_COUNT) break;
+    if (assigned >= POPULATION_CONSTANTS.NEARLY_DIED_COUNT) break;
     if (index !== undefined) {
       flags[index] = true;
       assigned++;
@@ -581,7 +614,7 @@ function initializeRelationships(
   }
 
   const shuffledPairs = shuffle(eligiblePairs, rng);
-  const pairCount = Math.min(ELEVATED_PAIR_COUNT, shuffledPairs.length);
+  const pairCount = Math.min(POPULATION_CONSTANTS.ELEVATED_PAIR_COUNT, shuffledPairs.length);
   for (let i = 0; i < pairCount; i++) {
     const pair = shuffledPairs[i];
     if (pair === undefined) continue;
@@ -630,7 +663,7 @@ export function initializeAgents(
 ): { agents: Agent[]; vessel: VesselState } {
   const rng = seedrandom(`agents_${seed}`) as RNG;
   const blueprints = buildBlueprints(rng);
-  const positions = distributeAgentPositions(TOTAL_AGENTS, world.vesselStart);
+  const positions = distributeAgentPositions(POPULATION_CONSTANTS.TOTAL_AGENTS, world.vesselStart);
   const usedNamesByFamily = new Map<string, Set<string>>();
 
   const agents: Agent[] = blueprints.map((blueprint, index) => {
