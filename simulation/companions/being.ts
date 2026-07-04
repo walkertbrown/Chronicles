@@ -70,35 +70,42 @@ const SIGHTING_AGENT_RADIUS = 10;         // tiles — how close agents must be 
 // ---- Conduit-bond formation eligibility ----
 // Grouped into one exported, mutable object — mirrors RELATIONSHIP_CONSTANTS in
 // agents/relationships.ts — so the wind-tunnel harness can override how fast the
-// fantasy plot ignites (e.g. `CONDUIT_CONSTANTS.LIGHT_BOND_PROXIMITY_TICKS = 90`)
-// without hand-editing this file. Defaults below are unchanged from before this
-// refactor; see the determinism check in the commit that introduced this object.
+// fantasy plot ignites without hand-editing this file.
+//
+// Retuned 2026-07 after wind-tunnel pacing confirmation at 20 seeds (combined
+// with CONDUIT_BOND_MIN_TICK below): dark path ignites in ~60% of worlds,
+// median Source awakening day 177; light path ignites in ~50% of worlds,
+// median day 193.5 — both landing at or near market-gate's target window
+// (median awakening day 180-220). Loosening these alone (without the floor)
+// only made ignition both more common AND earlier at the same time — the two
+// don't decouple from these constants; the floor is what lets timing be
+// tuned independently of reliability. See simulation/harness/results/ and
+// the commit that applied this retune.
 export const CONDUIT_CONSTANTS = {
   // Light bond eligibility
-  LIGHT_BOND_PROXIMITY_TICKS: 180,   // ticks spent near this agent
-  LIGHT_BOND_FEAR_SPIKES_MAX: 4,
+  LIGHT_BOND_PROXIMITY_TICKS: 25,   // ticks spent near this agent
+  LIGHT_BOND_FEAR_SPIKES_MAX: 80,
   LIGHT_BOND_CURIOSITY_MIN: 0.65,
   LIGHT_BOND_SIGNIFICANCE_PERCENTILE: 0.80,  // top 20% of population by significance
   LIGHT_BOND_CHRONICLE_PAGES_MIN: 3,
 
   // Dark bond eligibility
-  DARK_BOND_PROXIMITY_TICKS: 120,    // dark bonds form faster — the pull is stronger
-  DARK_BOND_FEAR_SPIKES_MAX: 8,      // dark-bond agents spike fear more, but Conduit still approaches
-  DARK_BOND_AGGRESSION_MIN: 0.70,
-  DARK_BOND_NOBILITY_MAX: 0.30,
+  DARK_BOND_PROXIMITY_TICKS: 10,    // dark bonds form faster — the pull is stronger
+  DARK_BOND_FEAR_SPIKES_MAX: 150,      // dark-bond agents spike fear more, but Conduit still approaches
+  DARK_BOND_AGGRESSION_MIN: 0.50,
+  DARK_BOND_NOBILITY_MAX: 0.50,
 
   // Availability floor: no bond (light or dark) can form before this tick,
   // regardless of how eligible a pair otherwise is. Proximity/fear-spike
   // accumulation still happens normally before the floor — an already-
   // qualifying pair simply bonds the moment the floor passes, rather than
-  // never being able to reach the threshold at all. This exists because
-  // loosening the eligibility constants above to raise ignition RELIABILITY
-  // also pulls the median ignition day EARLIER (a bigger eligible-pair pool
-  // means the first success across all seeds comes sooner) — the two don't
-  // decouple from constant-tuning alone. Default 0 = no floor (preserves
-  // pre-existing behavior). See the wind-tunnel pacing sweep that motivated
-  // this and the determinism check in the commit that introduced it.
-  CONDUIT_BOND_MIN_TICK: 0,
+  // never being able to reach the threshold at all. Set to 6720 ticks
+  // (world-day 140) 2026-07 as part of the pacing retune above — this is
+  // what lets the eligibility constants be loosened for reliability without
+  // also pulling the median ignition day earlier than intended. 0 = no
+  // floor. See simulation/harness/results/ and the commit that applied
+  // this retune.
+  CONDUIT_BOND_MIN_TICK: 6720,
 };
 
 // Significance multiplier for bonded agents
