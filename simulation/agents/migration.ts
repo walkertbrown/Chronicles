@@ -22,6 +22,28 @@
 // ~y1443-1499). Real map generation gives repick-on-block/stuck-timeout almost
 // nothing to react to in practice; verified against a constructed obstacle in
 // the determinism pass instead (see commit message).
+//
+// KNOWN v1 LIMITATION — no active cohesion between trekking family members.
+// Each member (lead, partner, kids) independently steps toward the same
+// fixed migration.destX/destY every tick; nothing pulls them toward EACH
+// OTHER. If one member pauses for survival stress more often than another
+// (different hunger/fatigue luck), the gap between them can grow well past
+// BIRTH_PROXIMITY_RADIUS (7 tiles — births.ts), blocking that couple's own
+// conception eligibility for the trek's duration — measured at ~39% of daily
+// conception-check moments for migrating couples across a sample, max
+// observed separation 133 tiles. This is a real, measured contributor
+// (~15-20%) to the population-wide conceptions/births dip observed with
+// migration active; the remainder is the shared-rng-stream reshuffling
+// described in the harness commit. Deliberately left unfixed for v1: a
+// correct fix needs more than "chase your partner's tile" — the marker's
+// destX/destY doubles as both the mover's step target AND the family-group
+// key (matchingTrekkers) AND feeds bestDist/stuckTicks tracking that must
+// stay valid for the rare dead-lead handoff (isEffectiveLead). Making
+// followers chase the lead's current position instead of the fixed
+// destination would corrupt that bestDist/stuckTicks accounting for whoever
+// might inherit lead status later. A real fix (e.g. a dedicated leader-
+// follow formation decoupled from arrival/timeout tracking) deserves its own
+// design pass, not a bolt-on here.
 
 import type { Agent, WorldState } from '@shared/types.js';
 import { BondType, EventType, StructureType, Terrain } from '@shared/types.js';
