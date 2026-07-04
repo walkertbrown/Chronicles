@@ -90,7 +90,7 @@ export function createWorldState(seed: number, worldId: string): WorldState {
     agents,
     tiles: world.tiles,
     conduits: world.conduits,
-    source: { position: world.source, control: 0 },
+    source: { position: world.source, control: 0, extremeSinceTick: null },
     vessel,
     eventLog: [],
     chroniclePages: [],

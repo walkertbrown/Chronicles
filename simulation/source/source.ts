@@ -20,8 +20,32 @@ const PRESENCE_RADIUS = 14;        // bonded souls within this drag the needle
 const SHIFT_RATE = 0.015;          // control change per unit of presence imbalance per tick
 const UNATTENDED_DECAY = 0.0015;   // with no one near, the needle drifts back toward dormant
 
+// Always-on drift toward 0, applied every tick regardless of presence (on top
+// of, not instead of, UNATTENDED_DECAY above — the two branches are mutually
+// exclusive per tick, see tickSource()). Without this, a single lone pilgrim's
+// per-tick pull (SHIFT_RATE * weight, weight ~= 1.0-2.0, so 0.015-0.03/tick)
+// saturates control to a bit-for-bit-frozen exact +-1.0 within about a day and
+// it never moves again for the rest of the run (0 sourceFlips ever recorded in
+// wind-tunnel data) — not a hard lock, just compounding one-sided presence with
+// nothing pulling back. This constant is deliberately small relative to a lone
+// pilgrim's pull (0.008 vs. 0.015 minimum) so it does NOT meaningfully delay
+// crossing SOURCE_AWAKE_THRESHOLD (0.15) — that first crossing is dominated by
+// SHIFT_RATE, not this. It only softens the slow approach to +-1.0 under
+// sustained single-polarity presence, and gives an unopposed dominant side a
+// very slight, permanent, ongoing loosening of its grip — the surface a rival
+// pilgrim's opposing presence (or, eventually, the rival-pull bonus in
+// companions/being.ts) has something to push against.
+const AMBIENT_DECAY = 0.008;
+
 // |control| at/above this counts as "awake" — the door is open to one side.
 export const SOURCE_AWAKE_THRESHOLD = 0.15;
+
+// |control| at/above this counts as "pinned to an extreme" — see extremeSinceTick
+// on the Source type. 0.9 rather than 1.0 so a run that's been sitting a hair
+// under the clamp (e.g. nudged down slightly by AMBIENT_DECAY) still counts as
+// dominated — the point is "one side has effectively won for a while," not
+// "control is bit-for-bit exactly +-1.0."
+const EXTREME_THRESHOLD = 0.9;
 
 // Ongoing effects, applied per tick and scaled by |control| (so a barely-open
 // source barely matters, a fully-held one matters a lot). All deliberately small
@@ -148,10 +172,29 @@ export function tickSource(state: WorldState): SimEvent[] {
   const prev = src.control;
   if (light > 0 || dark > 0) {
     src.control = clampControl(src.control + SHIFT_RATE * (light - dark));
+    // Ambient decay applies even while someone is actively present — pull
+    // gently back toward 0 same as UNATTENDED_DECAY below, clamped so it can't
+    // overshoot past 0 in one tick.
+    if (src.control > 0) {
+      src.control = Math.max(0, src.control - AMBIENT_DECAY);
+    } else if (src.control < 0) {
+      src.control = Math.min(0, src.control + AMBIENT_DECAY);
+    }
   } else if (src.control > 0) {
     src.control = Math.max(0, src.control - UNATTENDED_DECAY);
   } else if (src.control < 0) {
     src.control = Math.min(0, src.control + UNATTENDED_DECAY);
+  }
+
+  // Track how long control has been pinned near an extreme (|control| >= 0.9),
+  // for the rival-pull bonus in companions/being.ts. Reset the moment it drops
+  // back below 0.9 — the clock only counts unbroken streaks of dominance.
+  if (Math.abs(src.control) >= EXTREME_THRESHOLD) {
+    if (src.extremeSinceTick === null) {
+      src.extremeSinceTick = state.tick;
+    }
+  } else {
+    src.extremeSinceTick = null;
   }
 
   applySourceEffects(state, src.control);

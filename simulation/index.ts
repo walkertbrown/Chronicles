@@ -120,7 +120,7 @@ async function main(): Promise<void> {
     // at its deterministic spot beyond the ruins so the arc has somewhere to go.
     const restoredSource = state.source as WorldState['source'] | undefined;
     if (restoredSource === undefined) {
-      state.source = { position: computeSourcePosition(state.seed), control: 0 };
+      state.source = { position: computeSourcePosition(state.seed), control: 0, extremeSinceTick: null };
     }
     // ONE-TIME SOURCE MIGRATION: The ruin cluster was moved from y≈4-8 to
     // y≈599-899 (middle-distance north) in the exploration/migration update.
@@ -134,7 +134,15 @@ async function main(): Promise<void> {
       console.log(
         `Migrating Source from y=${state.source.position.y} to y=${newPos.y} (ruin zone moved inland)`,
       );
-      state.source = { position: newPos, control: state.source.control };
+      state.source = { position: newPos, control: state.source.control, extremeSinceTick: state.source.extremeSinceTick ?? null };
+    }
+    // extremeSinceTick (rival-pull mechanic) was added after this checkpoint was
+    // written — backfill so a resumed world's source object always has the
+    // field rather than undefined (undefined would fail the `=== null` check
+    // in tickSource()/checkBondEligibility() silently in a way that's easy to
+    // miss; explicit null is the documented "not currently pinned" value).
+    if (typeof state.source.extremeSinceTick !== 'number' && state.source.extremeSinceTick !== null) {
+      state.source.extremeSinceTick = null;
     }
   }
   process.on('SIGINT', () => {

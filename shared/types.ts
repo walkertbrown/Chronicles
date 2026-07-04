@@ -494,6 +494,15 @@ export interface TileCache {
 export interface Source {
   position: { x: number; y: number }
   control: number   // -1 (old gods / dark) … 0 (dormant) … +1 (Unbound / light)
+  // Tick at which |control| first reached 0.9 on the current streak, or null if
+  // control isn't currently pinned near an extreme. Reset to null the moment
+  // |control| drops back below 0.9. Lets other systems ask "how long has one
+  // side been dominant?" (state.tick - extremeSinceTick) — see tickSource() in
+  // simulation/source/source.ts and the rival-pull bonus in
+  // simulation/companions/being.ts's checkBondEligibility(). null on a fresh
+  // world and on any checkpoint written before this field existed (backfilled
+  // on restore in simulation/index.ts).
+  extremeSinceTick: number | null
 }
 
 export interface WorldState {

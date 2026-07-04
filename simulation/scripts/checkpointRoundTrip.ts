@@ -14,7 +14,7 @@
 // run build`). Exits 0 on success, 1 on any failed assertion.
 
 import { gzipSync, gunzipSync } from 'node:zlib';
-import type { Agent } from '@shared/types.js';
+import type { Agent, Source } from '@shared/types.js';
 import { serializeAgentForCheckpoint } from '../firebase.js';
 
 function makeFakeAgent(overrides: Partial<Agent> = {}): Agent {
@@ -120,6 +120,31 @@ const serializedSettled = serializeAgentForCheckpoint(settledAgent);
 const restoredSettled = roundTripThroughBlob(serializedSettled);
 
 assertEqual('settled agent: migration is explicitly null after round trip', restoredSettled.migration, null);
+
+// ---- Case 3: state.source, incl. the new extremeSinceTick field (source-contestable) ----
+// Unlike agents, writeCheckpoint's `source: state.source` is a full object
+// reference, not a hand-maintained field allowlist (see firebase.ts's
+// checkpoint construction) — so there is no serializeSourceForCheckpoint to
+// call here; this exercises the same gzip+JSON transformation directly on a
+// Source-shaped object to confirm a new field on that interface survives the
+// round trip the same way the allowlisted agent fields above do, and to catch
+// it if `source` is ever changed to an allowlist pattern in the future.
+const pinnedSource: Source = {
+  position: { x: 1500, y: 700 },
+  control: -1,
+  extremeSinceTick: 12345,
+};
+const restoredPinnedSource = roundTripThroughBlob(pinnedSource);
+assertEqual('pinned source: extremeSinceTick survives round trip', restoredPinnedSource.extremeSinceTick, 12345);
+assertEqual('pinned source: control survives (sanity check)', restoredPinnedSource.control, -1);
+
+const dormantSource: Source = {
+  position: { x: 1500, y: 700 },
+  control: 0,
+  extremeSinceTick: null,
+};
+const restoredDormantSource = roundTripThroughBlob(dormantSource);
+assertEqual('dormant source: extremeSinceTick is explicitly null after round trip', restoredDormantSource.extremeSinceTick, null);
 
 console.log(failures === 0 ? '\nAll checkpoint round-trip checks passed.' : `\n${failures} checkpoint round-trip check(s) FAILED.`);
 process.exit(failures === 0 ? 0 : 1);

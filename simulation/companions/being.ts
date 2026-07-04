@@ -106,6 +106,31 @@ export const CONDUIT_CONSTANTS = {
   // floor. See simulation/harness/results/ and the commit that applied
   // this retune.
   CONDUIT_BOND_MIN_TICK: 6720,
+
+  // ---- Rival pull ----
+  // Once the Source has been pinned to one polarity's extreme (|control| >= 0.9,
+  // tracked as state.source.extremeSinceTick — see source/source.ts) for a long
+  // unbroken stretch, the OPPOSITE polarity's bond eligibility loosens slightly:
+  // a small, monotonically-increasing, capped discount on that polarity's
+  // proximity-tick requirement and fear-spike ceiling. The already-dominant
+  // polarity gets none of this bonus — only the underdog rival is pulled,
+  // representing the contest drawing an opposing pilgrim the longer one side
+  // has unopposed control. See rivalPullFactor() below.
+  //
+  // RIVAL_PULL_THRESHOLD_TICKS chosen from the low end of the ~1440-2880 tick
+  // (30-60 world day) range explored for this feature: 2160 ticks (~45 days)
+  // of unbroken dominance before any bonus activates at all. That's well after
+  // the tuned first-ignition pacing (median Source awakening day ~177) has
+  // already played out, so this cannot influence which polarity ignites
+  // first — it only ever matters for a SECOND, opposing bond forming after one
+  // side has already settled in. RIVAL_PULL_FULL_TICKS is the unbroken-
+  // dominance duration at which the bonus reaches its cap — another ~180 days
+  // (8640 ticks) beyond the threshold, deliberately slow: the goal is to make a
+  // year-long standoff contestable eventually, not to make a rival bond common.
+  RIVAL_PULL_THRESHOLD_TICKS: 2160,
+  RIVAL_PULL_FULL_TICKS: 8640,
+  RIVAL_PULL_MAX_PROXIMITY_REDUCTION: 0.5, // up to 50% fewer proximity-ticks required, at full ramp
+  RIVAL_PULL_MAX_FEAR_SPIKE_BONUS: 0.5,    // up to 50% higher fear-spike ceiling, at full ramp
 };
 
 // Significance multiplier for bonded agents
@@ -400,6 +425,31 @@ function maybeLogSighting(
 // BONDING
 // ============================================================
 
+// How much the given polarity's bond eligibility should loosen right now,
+// as a factor in [0, 1] (0 = no bonus at all). Only ever nonzero for the
+// polarity OPPOSITE the Source's current dominant sign, and only once that
+// dominance has held unbroken for at least RIVAL_PULL_THRESHOLD_TICKS — see
+// the CONDUIT_CONSTANTS block above for the full rationale. Before the Source
+// has ever reached an extreme (extremeSinceTick === null), this always
+// returns 0 for both polarities, so default behavior is completely unchanged
+// until well after the first-ignition pacing has already played out.
+function rivalPullFactor(state: WorldState, polarity: 'light' | 'dark'): number {
+  const src = state.source;
+  if (src.extremeSinceTick === null) return 0;
+
+  // extremeSinceTick is only ever set while |control| >= 0.9 (see tickSource in
+  // source/source.ts), so control's sign is well-defined here — no zero case.
+  const dominantPolarity: 'light' | 'dark' = src.control > 0 ? 'light' : 'dark';
+  if (polarity === dominantPolarity) return 0; // only the underdog rival is pulled
+
+  const ticksAtExtreme = state.tick - src.extremeSinceTick;
+  if (ticksAtExtreme < CONDUIT_CONSTANTS.RIVAL_PULL_THRESHOLD_TICKS) return 0;
+
+  const span = CONDUIT_CONSTANTS.RIVAL_PULL_FULL_TICKS - CONDUIT_CONSTANTS.RIVAL_PULL_THRESHOLD_TICKS;
+  const progress = span > 0 ? (ticksAtExtreme - CONDUIT_CONSTANTS.RIVAL_PULL_THRESHOLD_TICKS) / span : 1;
+  return Math.max(0, Math.min(1, progress));
+}
+
 function checkBondEligibility(
   conduit: ConduitBeing,
   state: WorldState,
@@ -407,14 +457,29 @@ function checkBondEligibility(
   if (conduit.bondedAgentId !== null) return null;
   if (state.tick < CONDUIT_CONSTANTS.CONDUIT_BOND_MIN_TICK) return null;
 
+  // Rival pull — see rivalPullFactor() above. Computed once per call, applied
+  // as a discount on the relevant polarity's thresholds below. Both are 0
+  // (i.e. defaults are completely unchanged) until the Source has been pinned
+  // to one extreme for a long unbroken stretch.
+  const darkPull = rivalPullFactor(state, 'dark');
+  const lightPull = rivalPullFactor(state, 'light');
+  const darkProximityTicksRequired =
+    CONDUIT_CONSTANTS.DARK_BOND_PROXIMITY_TICKS * (1 - darkPull * CONDUIT_CONSTANTS.RIVAL_PULL_MAX_PROXIMITY_REDUCTION);
+  const darkFearSpikesMax =
+    CONDUIT_CONSTANTS.DARK_BOND_FEAR_SPIKES_MAX * (1 + darkPull * CONDUIT_CONSTANTS.RIVAL_PULL_MAX_FEAR_SPIKE_BONUS);
+  const lightProximityTicksRequired =
+    CONDUIT_CONSTANTS.LIGHT_BOND_PROXIMITY_TICKS * (1 - lightPull * CONDUIT_CONSTANTS.RIVAL_PULL_MAX_PROXIMITY_REDUCTION);
+  const lightFearSpikesMax =
+    CONDUIT_CONSTANTS.LIGHT_BOND_FEAR_SPIKES_MAX * (1 + lightPull * CONDUIT_CONSTANTS.RIVAL_PULL_MAX_FEAR_SPIKE_BONUS);
+
   for (const rec of conduit.agentProximityHistory) {
     const agent = findAgentById(state, rec.agentId);
     if (agent === undefined || !agent.alive) continue;
 
     // ---- Dark bond check (takes priority — reveal what was always there) ----
     if (
-      rec.totalTicks >= CONDUIT_CONSTANTS.DARK_BOND_PROXIMITY_TICKS &&
-      rec.fearSpikes <= CONDUIT_CONSTANTS.DARK_BOND_FEAR_SPIKES_MAX &&
+      rec.totalTicks >= darkProximityTicksRequired &&
+      rec.fearSpikes <= darkFearSpikesMax &&
       agent.traits.aggression >= CONDUIT_CONSTANTS.DARK_BOND_AGGRESSION_MIN &&
       agent.traits.nobility <= CONDUIT_CONSTANTS.DARK_BOND_NOBILITY_MAX
     ) {
@@ -423,8 +488,8 @@ function checkBondEligibility(
 
     // ---- Light bond check ----
     if (
-      rec.totalTicks >= CONDUIT_CONSTANTS.LIGHT_BOND_PROXIMITY_TICKS &&
-      rec.fearSpikes <= CONDUIT_CONSTANTS.LIGHT_BOND_FEAR_SPIKES_MAX &&
+      rec.totalTicks >= lightProximityTicksRequired &&
+      rec.fearSpikes <= lightFearSpikesMax &&
       agent.traits.curiosity >= CONDUIT_CONSTANTS.LIGHT_BOND_CURIOSITY_MIN &&
       (agent.lastChroniclePageMention !== null || agent.chronicleThreadActive) &&
       significancePercentile(agent, state) >= CONDUIT_CONSTANTS.LIGHT_BOND_SIGNIFICANCE_PERCENTILE
