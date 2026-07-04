@@ -64,6 +64,7 @@ export class SeedMetricsCollector {
   private readonly populationSamples: number[] = [];
 
   private artifactsFound = 0;
+  private scatteredArtifactsFound = 0;
   private firstArtifactFoundDay: number | null = null;
 
   private familiesRelocated = 0;
@@ -163,19 +164,26 @@ export class SeedMetricsCollector {
     this.latestRivalCount = seenRival.size;
 
     // Artifact discoveries: scan tile state directly (ground truth) rather than
-    // EventType.ArtifactFound. That event is only logged from the idle-curiosity
-    // path (agents/actions.ts actionExplore) — the wanderlust-foray path
-    // (agents/exploration.ts actionVenture) also discovers artifacts but does
-    // NOT log an event for it, so an event-only count would silently undercount.
-    // `artifact.discovered` never resets once set, so a periodic scan of the
-    // (small, sparse) dirty-tile set gives the true cumulative total.
+    // EventType.ArtifactFound. The only live discovery path on this branch —
+    // the scattered-artifact hook (agents/artifactDiscovery.ts, ordinary Plain/
+    // Forest ground) — DOES log that event on every find, so there's no known
+    // undercount today (Ruin-tile artifacts have no discovery mechanism at all
+    // on this branch; that's a separate, not-yet-merged feature). The tile
+    // scan remains the right approach regardless: `artifact.discovered` never
+    // resets once set, so a periodic scan of the (small, sparse) dirty-tile
+    // set gives a robust, self-correcting cumulative total independent of the
+    // 500-entry event log cap.
     let discoveredCount = 0;
+    let discoveredScatteredCount = 0;
     for (const tile of state.tiles.getDirtyTiles().values()) {
       for (const artifact of tile.artifacts) {
-        if (artifact.discovered) discoveredCount += 1;
+        if (!artifact.discovered) continue;
+        discoveredCount += 1;
+        if (artifact.id.startsWith('scatter_')) discoveredScatteredCount += 1;
       }
     }
     this.artifactsFound = discoveredCount;
+    this.scatteredArtifactsFound = discoveredScatteredCount;
     if (discoveredCount > 0 && this.firstArtifactFoundDay === null) {
       this.firstArtifactFoundDay = day;
     }
@@ -204,6 +212,7 @@ export class SeedMetricsCollector {
       illnessEvents: this.illnessEvents,
       firstArtifactFoundDay: this.firstArtifactFoundDay,
       artifactsFound: this.artifactsFound,
+      scatteredArtifactsFound: this.scatteredArtifactsFound,
       firstRelocationDay: this.firstRelocationDay,
       familiesRelocated: this.familiesRelocated,
       populationSamples: this.populationSamples,

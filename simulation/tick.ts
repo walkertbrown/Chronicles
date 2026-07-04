@@ -6,6 +6,7 @@ import { BondType, EventType, Season, Terrain } from '@shared/types.js';
 import { tickBirths } from './agents/births.js';
 import { TICKS_PER_DAY, TICKS_PER_YEAR, tickAgentAge, tickAgentDrives } from './agents/drives.js';
 import { executeAgentAction } from './agents/actions.js';
+import { checkScatteredArtifactDiscovery } from './agents/artifactDiscovery.js';
 import { checkInfection, tickIllness } from './agents/illness.js';
 import { initializeAgents } from './agents/initializer.js';
 import { OutcomeType, type TickOutcome } from './agents/outcomes.js';
@@ -286,6 +287,8 @@ export function tick(state: WorldState, rng: () => number): TickSummary {
   for (const agent of shuffleAgents(aliveAgents(state), rng)) {
     const agentOutcomes: TickOutcome[] = [];
     executeAgentAction(agent, state, agentOutcomes, rng);
+    const scatteredFind = checkScatteredArtifactDiscovery(agent, state, rng);
+    if (scatteredFind !== undefined) agentOutcomes.push(scatteredFind);
     outcomesByAgent.set(agent.id, agentOutcomes);
     tickPredatorThreat(agent, state, rng);
   }

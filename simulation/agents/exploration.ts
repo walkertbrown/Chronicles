@@ -395,21 +395,6 @@ export function actionVenture(agent: Agent, state: WorldState, rng: () => number
     };
   }
 
-  const undiscoveredArtifact = nextTile.artifacts.find((a) => !a.discovered);
-  if (isNew && undiscoveredArtifact !== undefined) {
-    undiscoveredArtifact.discovered = true;
-    return {
-      type: OutcomeType.FoundArtifact,
-      success: true,
-      partial: false,
-      involvedAgentId: null,
-      fatigueAtTime: agent.drives.fatigue,
-      fearAtTime: agent.drives.fear,
-      conflictWon: null,
-      amountGained: null,
-    };
-  }
-
   return {
     type: OutcomeType.Ventured,
     success: true,

@@ -47,7 +47,7 @@ function buildCsv(results: SeedResult[]): string {
     'deaths', 'deaths_starvation', 'deaths_violence', 'deaths_predator', 'deaths_illness', 'deaths_other',
     'conflicts', 'resolutions', 'migrations', 'maxDistanceNorth',
     'finalPopulation', 'peakPopulation', 'minPopulation', 'illnessEvents',
-    'firstArtifactFoundDay', 'artifactsFound',
+    'firstArtifactFoundDay', 'artifactsFound', 'scatteredArtifactsFound',
     'firstRelocationDay', 'familiesRelocated',
   ];
   if (keepFantasy) {
@@ -72,7 +72,7 @@ function buildCsv(results: SeedResult[]): string {
       m.deathBreakdown.predator, m.deathBreakdown.illness, m.deathBreakdown.other,
       m.conflicts, m.resolutions, m.migrations, m.maxDistanceNorth ?? '',
       m.finalPopulation, m.peakPopulation, m.minPopulation, m.illnessEvents,
-      m.firstArtifactFoundDay ?? '', m.artifactsFound,
+      m.firstArtifactFoundDay ?? '', m.artifactsFound, m.scatteredArtifactsFound,
       m.firstRelocationDay ?? '', m.familiesRelocated,
     ];
     if (keepFantasy && r.fantasy !== null) {

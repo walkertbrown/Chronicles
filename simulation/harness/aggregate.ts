@@ -63,11 +63,13 @@ export interface AggregateStats {
   illnessEvents: NumericStat;
   firstArtifactFoundDay: NumericStat;
   artifactsFound: NumericStat;
+  scatteredArtifactsFound: NumericStat;
   firstRelocationDay: NumericStat;
   familiesRelocated: NumericStat;
   northSeedCount: number; // seeds that ever sent someone at/below NORTH_THRESHOLD_Y
   deathSeedCount: number; // seeds that recorded at least one death
   artifactSeedCount: number; // seeds that found at least one artifact
+  scatteredArtifactSeedCount: number; // seeds that found at least one scattered artifact
   relocationSeedCount: number; // seeds that saw at least one family relocate
 }
 
@@ -100,6 +102,7 @@ export function computeAggregateStats(metricsList: SeedMetrics[], days: number):
     illnessEvents: computeStat(metricsList.map((m) => m.illnessEvents)),
     firstArtifactFoundDay: computeStat(metricsList.map((m) => m.firstArtifactFoundDay)),
     artifactsFound: computeStat(metricsList.map((m) => m.artifactsFound)),
+    scatteredArtifactsFound: computeStat(metricsList.map((m) => m.scatteredArtifactsFound)),
     firstRelocationDay: computeStat(metricsList.map((m) => m.firstRelocationDay)),
     familiesRelocated: computeStat(metricsList.map((m) => m.familiesRelocated)),
     northSeedCount: metricsList.filter(
@@ -107,6 +110,7 @@ export function computeAggregateStats(metricsList: SeedMetrics[], days: number):
     ).length,
     deathSeedCount: metricsList.filter((m) => m.deaths > 0).length,
     artifactSeedCount: metricsList.filter((m) => m.artifactsFound > 0).length,
+    scatteredArtifactSeedCount: metricsList.filter((m) => m.scatteredArtifactsFound > 0).length,
     relocationSeedCount: metricsList.filter((m) => m.familiesRelocated > 0).length,
   };
 }
@@ -216,6 +220,15 @@ export function buildGateVerdict(
       totalSeeds,
       `(${stats.artifactSeedCount}/${totalSeeds} seeds; median firstArtifactFoundDay ${stats.firstArtifactFoundDay.median})`,
       `(0/${totalSeeds} seeds found an artifact in ${days} days) ← investigate`,
+    ),
+  );
+  lines.push(
+    gate(
+      'scattered artifacts',
+      stats.scatteredArtifactSeedCount,
+      totalSeeds,
+      `(${stats.scatteredArtifactSeedCount}/${totalSeeds} seeds; median scatteredArtifactsFound ${stats.scatteredArtifactsFound.median})`,
+      `(0/${totalSeeds} seeds found a scattered artifact in ${days} days) ← investigate`,
     ),
   );
   lines.push(

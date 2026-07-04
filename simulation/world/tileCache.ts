@@ -85,6 +85,11 @@ interface WorldFeatures {
   ruinCenter: { cx: number; cy: number; radius: number }
   // Vessel start
   vesselStartX: number
+  // Scattered-artifact anchor tiles — ordinary Plain/Forest ground in the
+  // populated band, each seeded with exactly one mundane artifact so agents
+  // can stumble onto one in everyday life (see placeArtifacts). Disjoint from
+  // the ruin cluster's own artifact placement.
+  scatterAnchors: Array<{ x: number; y: number }>
 }
 
 function computeWorldFeatures(seed: number): WorldFeatures {
@@ -153,7 +158,71 @@ function computeWorldFeatures(seed: number): WorldFeatures {
   // Vessel start x
   const vesselStartX = Math.floor(MAP_WIDTH / 2) - 1;
 
-  return { riverTiles, forestClusters, ruinCenter, vesselStartX };
+  // Scattered-artifact anchors — computed LAST, after every feature that an
+  // existing tuned baseline depends on (river/forest/ruin/vessel), so this
+  // draws only from the tail of the world-level rng stream and can never
+  // shift anything upstream. See pickScatterAnchors for the selection rules.
+  const scatterAnchors = pickScatterAnchors(seed, rng, {
+    riverTiles,
+    forestClusters,
+    ruinCenter,
+    vesselStartX,
+  });
+
+  return { riverTiles, forestClusters, ruinCenter, vesselStartX, scatterAnchors };
+}
+
+// ============================================================
+// SCATTERED-ARTIFACT ANCHORS
+// Picks a handful of ordinary Plain/Forest tiles in the populated central
+// swath (around the landing column, well south of the ruin cluster) to each
+// carry one mundane artifact — see placeArtifacts. Rejection-samples on
+// terrain via determineTerrain, which draws from an independent per-tile rng
+// (getTileRng), NOT the world-level rng passed in here — so candidate checks
+// never perturb the world-level stream beyond the coordinate draws below.
+// ============================================================
+
+const SCATTER_ANCHOR_COUNT = 8;
+const SCATTER_X_MIN = 1100;
+const SCATTER_X_MAX = 1900;
+const SCATTER_MAX_ATTEMPTS = 200; // generous cap; never expected to bind
+
+function pickScatterAnchors(
+  seed: number,
+  rng: RNG,
+  base: {
+    riverTiles: Set<string>
+    forestClusters: Array<{ cx: number; cy: number; radius: number }>
+    ruinCenter: { cx: number; cy: number; radius: number }
+    vesselStartX: number
+  },
+): Array<{ x: number; y: number }> {
+  // Trafficked band: inland enough to not be right on the coast, but nowhere
+  // near the ruin cluster (y≈599-899) — a clean ~400-tile gap, so no explicit
+  // ruin-distance check is needed since the y-ranges never overlap.
+  const yMin = COAST_ROW - 200; // 1299
+  const yMax = COAST_ROW - 20;  // 1479
+
+  // determineTerrain only reads riverTiles/forestClusters/ruinCenter/
+  // vesselStartX; scatterAnchors itself is irrelevant to terrain classification,
+  // so a placeholder empty array here is safe and never observed.
+  const terrainFeatures: WorldFeatures = { ...base, scatterAnchors: [] };
+
+  const anchors: Array<{ x: number; y: number }> = [];
+  const seen = new Set<string>();
+
+  for (let attempt = 0; attempt < SCATTER_MAX_ATTEMPTS && anchors.length < SCATTER_ANCHOR_COUNT; attempt++) {
+    const x = rInt(rng, SCATTER_X_MIN, SCATTER_X_MAX);
+    const y = rInt(rng, yMin, yMax);
+    const key = `${x}:${y}`;
+    if (seen.has(key)) continue; // dedupe — retry with a fresh draw next loop
+    const terrain = determineTerrain(x, y, terrainFeatures, seed);
+    if (terrain !== Terrain.Plain && terrain !== Terrain.Forest) continue; // retry with a fresh draw
+    seen.add(key);
+    anchors.push({ x, y });
+  }
+
+  return anchors; // may be fewer than SCATTER_ANCHOR_COUNT if attempts run out (should not happen in practice)
 }
 
 // ============================================================
@@ -294,14 +363,42 @@ function pickArtifactKind(rng: RNG, ancientDensity: number): ArtifactKind {
   return ArtifactKind.Tool;
 }
 
+function isScatterAnchor(x: number, y: number, scatterAnchors: Array<{ x: number; y: number }>): boolean {
+  return scatterAnchors.some((a) => a.x === x && a.y === y);
+}
+
 function placeArtifacts(
   terrain: Terrain,
   x: number,
   y: number,
   ancientDensity: number,
   rng: RNG,
+  scatterAnchors: Array<{ x: number; y: number }>,
 ): Artifact[] {
-  if (terrain !== Terrain.Ruin) return [];
+  if (terrain !== Terrain.Ruin) {
+    // Scattered artifacts: exactly one mundane artifact on each of the
+    // seeded scatter-anchor tiles (see computeWorldFeatures/pickScatterAnchors)
+    // — ordinary Plain/Forest ground in the populated band, reachable through
+    // everyday wandering/foraging/exploring with no special expedition.
+    // ancientDensity is naturally ~0 this far from the ruin cluster, so
+    // pickArtifactKind biases toward ArtifactKind.Tool with no new logic.
+    // Every other non-Ruin tile is unaffected — still returns [] exactly as
+    // before, with zero rng draws.
+    if ((terrain === Terrain.Plain || terrain === Terrain.Forest) && isScatterAnchor(x, y, scatterAnchors)) {
+      const kind = pickArtifactKind(rng, ancientDensity);
+      const descriptors = ARTIFACT_DESCRIPTORS[kind];
+      const descriptor = descriptors[rInt(rng, 0, descriptors.length - 1)] ?? descriptors[0]!;
+      return [{
+        id: `scatter_${x}_${y}`,
+        discovered: false,
+        imprinted: false,
+        kind,
+        descriptor,
+        legible: false,
+      }];
+    }
+    return [];
+  }
   const count = rng() < ancientDensity * 0.8
     ? rInt(rng, 1, 3)
     : rng() < 0.3 ? 1 : 0;
@@ -343,7 +440,7 @@ function generateTile(
     terrain,
     resources: makeTileResources(terrain, rng),
     ancientDensity,
-    artifacts: placeArtifacts(terrain, x, y, ancientDensity, rng),
+    artifacts: placeArtifacts(terrain, x, y, ancientDensity, rng, features.scatterAnchors),
     occupants: [],
     conduitIds: [],
     structure: null,

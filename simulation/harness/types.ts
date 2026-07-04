@@ -75,6 +75,9 @@ export interface SeedMetrics {
 
   firstArtifactFoundDay: number | null;
   artifactsFound: number;
+  // Subset of artifactsFound whose id starts with 'scatter_' — see
+  // world/tileCache.ts's scatterAnchors and agents/artifactDiscovery.ts.
+  scatteredArtifactsFound: number;
 
   // EventType.HamletFounded — a family's multi-tick trek ends in a new
   // settlement (simulation/agents/migration.ts). Distinct from the pre-existing
