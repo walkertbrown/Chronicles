@@ -472,39 +472,111 @@ function checkBondEligibility(
   const lightFearSpikesMax =
     CONDUIT_CONSTANTS.LIGHT_BOND_FEAR_SPIKES_MAX * (1 + lightPull * CONDUIT_CONSTANTS.RIVAL_PULL_MAX_FEAR_SPIKE_BONUS);
 
+  // ---- Three-bucket scan (stateless — recomputed fresh every tick) ----
+  //
+  // Dark's proximity bar (10 ticks) is numerically lower than light's (25
+  // ticks) on the same shared rec.totalTicks counter. Returning on the first
+  // dark match found while scanning (as this used to) meant any agent who'd
+  // eventually also qualify for light got claimed by dark the instant its
+  // easier, purely trait-based bar cleared — foreclosing light entirely for
+  // that pairing, even when the agent already satisfied light's harder
+  // narrative conditions and just hadn't hit 25 ticks yet. Fixed by scanning
+  // every candidate once per tick and sorting into three buckets:
+  //
+  //   1. Fully light-eligible (every light condition, INCLUDING the 25-tick
+  //      dwell) -> bond light with whichever candidate has the highest
+  //      significance percentile (tiebreak: lowest agent id string).
+  //   2. Dark-eligible AND NOT a "light candidate" -> bond dark with the
+  //      longest-lingering candidate (highest totalTicks; tiebreak: lowest
+  //      agent id string). A "light candidate" is an agent who already
+  //      satisfies every light condition EXCEPT the dwell requirement (i.e.
+  //      fear spikes, curiosity, significance percentile, and chronicle
+  //      mentions are all already true, but totalTicks hasn't reached 25 yet).
+  //   3. Dark-eligible but also a live light candidate -> no bond fires for
+  //      this agent this tick; held, re-evaluated fresh next tick. They'll
+  //      either reach 25 ticks and land in bucket 1, or lose light-candidacy
+  //      (e.g. drop out of the top-20% significance percentile, or their
+  //      fear-spike count finally exceeds light's ceiling) and land in
+  //      bucket 2 on some future tick.
+  //
+  // Bucket 1 is checked first: any fully-light-eligible agent this tick means
+  // this Conduit bonds light, full stop, for this tick — bucket 2 is only
+  // consulted if bucket 1 is empty. No new state: everything here is
+  // recomputed fresh from rec.totalTicks / rec.fearSpikes / agent traits /
+  // chronicle pages, exactly as the old single-pass version did — and because
+  // ties are broken by an explicit, deterministic key (agent id string, not
+  // array/object iteration order), the outcome no longer depends on the order
+  // agentProximityHistory happens to have been populated in.
+  let bestLight: { agent: Agent; percentile: number } | undefined;
+  let bestDark: { agent: Agent; totalTicks: number } | undefined;
+
   for (const rec of conduit.agentProximityHistory) {
     const agent = findAgentById(state, rec.agentId);
     if (agent === undefined || !agent.alive) continue;
 
-    // ---- Dark bond check (takes priority — reveal what was always there) ----
-    if (
+    // ---- Light-condition components (shared by "fully eligible" and "candidate") ----
+    const meetsLightFearSpikes = rec.fearSpikes <= lightFearSpikesMax;
+    const meetsLightCuriosity = agent.traits.curiosity >= CONDUIT_CONSTANTS.LIGHT_BOND_CURIOSITY_MIN;
+    const meetsLightChronicleGate =
+      agent.lastChroniclePageMention !== null || agent.chronicleThreadActive;
+
+    let percentile = 0;
+    let meetsLightSignificance = false;
+    let meetsLightChronicle = false;
+    if (meetsLightFearSpikes && meetsLightCuriosity && meetsLightChronicleGate) {
+      percentile = significancePercentile(agent, state);
+      meetsLightSignificance = percentile >= CONDUIT_CONSTANTS.LIGHT_BOND_SIGNIFICANCE_PERCENTILE;
+      if (meetsLightSignificance) {
+        // Chronicle page count check — agent must have been noticed by the story
+        const pagesMentioned = state.chroniclePages.filter((p) =>
+          p.threads.some((t) => t.primaryAgentId === agent.id) ||
+          p.significantEvents.some((eid) =>
+            state.eventLog.find((e) => e.id === eid)?.involvedAgents.includes(agent.id),
+          ),
+        ).length;
+        meetsLightChronicle = pagesMentioned >= CONDUIT_CONSTANTS.LIGHT_BOND_CHRONICLE_PAGES_MIN;
+      }
+    }
+
+    const meetsLightDwell = rec.totalTicks >= lightProximityTicksRequired;
+    const meetsLightOthers =
+      meetsLightFearSpikes && meetsLightCuriosity && meetsLightSignificance && meetsLightChronicle;
+    const isFullyLightEligible = meetsLightDwell && meetsLightOthers;
+    const isLightCandidate = !meetsLightDwell && meetsLightOthers;
+
+    if (isFullyLightEligible) {
+      if (
+        bestLight === undefined ||
+        percentile > bestLight.percentile ||
+        (percentile === bestLight.percentile && agent.id < bestLight.agent.id)
+      ) {
+        bestLight = { agent, percentile };
+      }
+    }
+
+    // ---- Dark eligibility ----
+    const isDarkEligible =
       rec.totalTicks >= darkProximityTicksRequired &&
       rec.fearSpikes <= darkFearSpikesMax &&
       agent.traits.aggression >= CONDUIT_CONSTANTS.DARK_BOND_AGGRESSION_MIN &&
-      agent.traits.nobility <= CONDUIT_CONSTANTS.DARK_BOND_NOBILITY_MAX
-    ) {
-      return { agentId: agent.id, type: 'dark' };
-    }
+      agent.traits.nobility <= CONDUIT_CONSTANTS.DARK_BOND_NOBILITY_MAX;
 
-    // ---- Light bond check ----
-    if (
-      rec.totalTicks >= lightProximityTicksRequired &&
-      rec.fearSpikes <= lightFearSpikesMax &&
-      agent.traits.curiosity >= CONDUIT_CONSTANTS.LIGHT_BOND_CURIOSITY_MIN &&
-      (agent.lastChroniclePageMention !== null || agent.chronicleThreadActive) &&
-      significancePercentile(agent, state) >= CONDUIT_CONSTANTS.LIGHT_BOND_SIGNIFICANCE_PERCENTILE
-    ) {
-      // Chronicle page count check — agent must have been noticed by the story
-      const pagesMentioned = state.chroniclePages.filter((p) =>
-        p.threads.some((t) => t.primaryAgentId === agent.id) ||
-        p.significantEvents.some((eid) =>
-          state.eventLog.find((e) => e.id === eid)?.involvedAgents.includes(agent.id),
-        ),
-      ).length;
-      if (pagesMentioned >= CONDUIT_CONSTANTS.LIGHT_BOND_CHRONICLE_PAGES_MIN) {
-        return { agentId: agent.id, type: 'light' };
+    if (isDarkEligible && !isLightCandidate) {
+      if (
+        bestDark === undefined ||
+        rec.totalTicks > bestDark.totalTicks ||
+        (rec.totalTicks === bestDark.totalTicks && agent.id < bestDark.agent.id)
+      ) {
+        bestDark = { agent, totalTicks: rec.totalTicks };
       }
     }
+  }
+
+  if (bestLight !== undefined) {
+    return { agentId: bestLight.agent.id, type: 'light' };
+  }
+  if (bestDark !== undefined) {
+    return { agentId: bestDark.agent.id, type: 'dark' };
   }
 
   return null;
