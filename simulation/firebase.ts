@@ -218,6 +218,20 @@ export async function loadCheckpoint(worldId: string): Promise<WorldState | null
         (agent as { pregnancy: null }).pregnancy = null;
       }
     }
+    // fearSpikes on every Conduit's agentProximityHistory used to increment on
+    // literally every tick a tracked agent was merely within FEAR_SPIKE_RADIUS
+    // (see updateProximityHistory in companions/being.ts) — a dwell-time
+    // counter in disguise, not a genuine fear signal. Fixed 2026-07 to only
+    // increment when the CONDUIT's own drives.fear crosses a real threshold.
+    // Any fearSpikes value already sitting in a live checkpoint was computed
+    // under the old (broken) semantics and would misrepresent bond
+    // eligibility going forward under the corrected one — reset to 0 once on
+    // load so the corrected counter starts clean for every Conduit.
+    for (const conduit of state.conduits) {
+      for (const rec of conduit.agentProximityHistory) {
+        rec.fearSpikes = 0;
+      }
+    }
     console.log(`Checkpoint loaded — tick ${state.tick}, day ${state.day}`);
     return state;
   } catch (err) {

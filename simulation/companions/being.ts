@@ -61,7 +61,19 @@ const IMPRINT_MIN_BOND_STRENGTH = 0.4;
 
 // Proximity history
 const PROXIMITY_TRACKING_RADIUS = 6;
-const FEAR_SPIKE_THRESHOLD_FOR_RECORD = 0.1;
+// Genuine-fear bar for the fearSpikes proximity counter (see
+// updateProximityHistory below): rec.fearSpikes is meant to record how many
+// times a tracked agent's presence pushed the CONDUIT into a real fear state
+// (per the field's own doc comment on AgentProximityRecord — "how many times
+// this agent triggered Conduit fear"), not merely how many ticks they spent
+// near each other. FEAR_FLEE_THRESHOLD (0.55) is already this file's own
+// definition of "meaningfully fearful" — it's the exact level at which
+// moveConduit's fear-flee behavior takes over from everything else. Reusing
+// that same bar here (as an independent constant, so the two can be retuned
+// separately later without coupling) means a spike is only recorded when the
+// Conduit's fear is at the level that already changes its behavior elsewhere
+// in this file — not the old per-tick-recomputed value that was always true.
+const FEAR_SPIKE_RECORD_MIN_FEAR = 0.55;
 
 // Sighting events
 const SIGHTING_COOLDOWN_TICKS = 200;      // min ticks between sighting logs for same Conduit
@@ -357,14 +369,20 @@ function updateProximityHistory(conduit: ConduitBeing, state: WorldState): void 
   const { x, y } = conduit.position;
   const tracked = agentsWithinRadius(aliveAgents(state), x, y, PROXIMITY_TRACKING_RADIUS);
 
+  // tickConduitDrives() already ran earlier this tick (see tickAllConduits
+  // below), so conduit.drives.fear already reflects this tick's fear level —
+  // checking the CONDUIT's own current fear state here (rather than
+  // recomputing a local per-agent "spike" estimate that was always above the
+  // old recording threshold regardless of anything) is what makes this a
+  // genuine fear filter instead of a second dwell-time counter.
+  const conduitIsGenuinelyAfraid = conduit.drives.fear >= FEAR_SPIKE_RECORD_MIN_FEAR;
+
   for (const agent of tracked) {
     const rec = findOrCreateProximityRecord(conduit, agent.id);
     rec.totalTicks += 1;
     const dist = manhattanDistance(x, y, agent.position.x, agent.position.y);
-    if (dist <= FEAR_SPIKE_RADIUS) {
-      let spike = FEAR_SPIKE_BASE;
-      if (agent.traits.aggression > 0.6) spike *= FEAR_HIGH_AGGRESSION_MULTIPLIER;
-      if (spike >= FEAR_SPIKE_THRESHOLD_FOR_RECORD) rec.fearSpikes += 1;
+    if (dist <= FEAR_SPIKE_RADIUS && conduitIsGenuinelyAfraid) {
+      rec.fearSpikes += 1;
     }
   }
 }
