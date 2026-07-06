@@ -59,12 +59,14 @@ const FAMILY_NAMES = [
 // from TOTAL_AGENTS × ratio at generation time (see getMaleCount/
 // getRoleCounts below) rather than hardcoded, so they always sum exactly
 // to TOTAL_AGENTS at any population size — the ratios reproduce today's
-// exact 35/15 gender split and 12/28/2/8 role split at the default
-// TOTAL_AGENTS=50 (see the determinism check in the commit that introduced
-// this object). NEARLY_DIED_COUNT/MIN_NEARLY_DIED_OUTCASTS/
-// ELEVATED_PAIR_COUNT stay absolute (founding-story flavor counts, not
-// population-proportional — a bigger village doesn't need proportionally
-// more crossing casualties or shipboard romances).
+// exact 35/15 gender split and 12/23/2/8/5 role split (explorer/outcast/
+// leader/survivor/caregiver) at the default TOTAL_AGENTS=50 (see the
+// determinism check in the commit that introduced this object). Caregiver
+// was carved out of the Outcast residual, which remains the largest single
+// role. NEARLY_DIED_COUNT/MIN_NEARLY_DIED_OUTCASTS/ELEVATED_PAIR_COUNT stay
+// absolute (founding-story flavor counts, not population-proportional — a
+// bigger village doesn't need proportionally more crossing casualties or
+// shipboard romances).
 // ============================================================
 
 export const POPULATION_CONSTANTS = {
@@ -73,7 +75,9 @@ export const POPULATION_CONSTANTS = {
   EXPLORER_RATIO: 0.24,
   LEADER_RATIO: 0.04,
   SURVIVOR_RATIO: 0.16,
-  // Outcast is the implicit remainder: TOTAL_AGENTS - explorer - leader - survivor.
+  CAREGIVER_RATIO: 0.10,
+  // Outcast is the implicit remainder: TOTAL_AGENTS - explorer - leader - survivor - caregiver.
+  // Outcast stays the residual/largest role even after Caregiver is carved out.
   NEARLY_DIED_COUNT: 6,
   MIN_NEARLY_DIED_OUTCASTS: 3,
   ELEVATED_PAIR_COUNT: 7,
@@ -92,12 +96,14 @@ function getRoleCounts(): Record<FoundingRole, number> {
   const explorer = Math.round(total * POPULATION_CONSTANTS.EXPLORER_RATIO);
   const leader = Math.round(total * POPULATION_CONSTANTS.LEADER_RATIO);
   const survivor = Math.round(total * POPULATION_CONSTANTS.SURVIVOR_RATIO);
-  const outcast = total - explorer - leader - survivor;
+  const caregiver = Math.round(total * POPULATION_CONSTANTS.CAREGIVER_RATIO);
+  const outcast = total - explorer - leader - survivor - caregiver;
   return {
     [FoundingRole.Explorer]: explorer,
     [FoundingRole.Outcast]: outcast,
     [FoundingRole.Leader]: leader,
     [FoundingRole.Survivor]: survivor,
+    [FoundingRole.Caregiver]: caregiver,
   };
 }
 
@@ -109,9 +115,16 @@ const TRAIT_VARIATION = 0.15;
 // hermits rarer still. (1 - r^skew: higher skew → fewer loners.)
 const SOCIABILITY_SKEW = 2.5;
 const SOCIABILITY_LEADER_BONUS = 0.15;       // leaders bind the group
+const SOCIABILITY_CAREGIVER_BONUS = 0.10;    // caregivers draw close but don't lead
 const SOCIABILITY_SOLITARY_ROLE_PENALTY = 0.2; // explorers/outcasts lean solitary
 const SKILL_MIN = 0.05;
 const SKILL_MAX = 0.2;
+// Caregivers start able to actually treat the sick: every other role's healing
+// skill is drawn from the population default (SKILL_MIN..SKILL_MAX), which
+// never clears HEALER_SKILL_THRESHOLD (0.3, simulation/agents/illness.ts).
+// This range guarantees every Caregiver clears it with margin.
+const CAREGIVER_HEALING_MIN = 0.4;
+const CAREGIVER_HEALING_MAX = 0.55;
 
 const VESSEL_WIDTH = 3;
 const VESSEL_HEIGHT = 2;
@@ -189,6 +202,11 @@ function generateTraits(role: FoundingRole, rng: RNG): Traits {
       traits.endurance += 0.2;
       traits.courage += 0.1;
       break;
+    case FoundingRole.Caregiver:
+      // Direct inverse of Outcast's profile: nobility up (matches Leader's
+      // bonus), no aggression modifier at all.
+      traits.nobility += 0.2;
+      break;
   }
 
   for (const key of Object.keys(traits) as Array<keyof Traits>) {
@@ -201,6 +219,8 @@ function generateTraits(role: FoundingRole, rng: RNG): Traits {
   let sociability = clamp01(1 - Math.pow(rng(), SOCIABILITY_SKEW));
   if (role === FoundingRole.Leader) {
     sociability = clamp01(sociability + SOCIABILITY_LEADER_BONUS);
+  } else if (role === FoundingRole.Caregiver) {
+    sociability = clamp01(sociability + SOCIABILITY_CAREGIVER_BONUS);
   } else if (role === FoundingRole.Explorer || role === FoundingRole.Outcast) {
     sociability = clamp01(sociability - SOCIABILITY_SOLITARY_ROLE_PENALTY);
   }
@@ -254,13 +274,18 @@ function generateDrives(
   return drives;
 }
 
-function generateSkills(rng: RNG): Skills {
+function generateSkills(role: FoundingRole, rng: RNG): Skills {
   return {
     hunting: rFloat(rng, SKILL_MIN, SKILL_MAX),
     gathering: rFloat(rng, SKILL_MIN, SKILL_MAX),
     building: rFloat(rng, SKILL_MIN, SKILL_MAX),
     fire: rFloat(rng, SKILL_MIN, SKILL_MAX),
-    healing: rFloat(rng, SKILL_MIN, SKILL_MAX),
+    // Same single draw as every other role — only the range fed to it changes
+    // — so RNG-stream consumption shape is unchanged.
+    healing:
+      role === FoundingRole.Caregiver
+        ? rFloat(rng, CAREGIVER_HEALING_MIN, CAREGIVER_HEALING_MAX)
+        : rFloat(rng, SKILL_MIN, SKILL_MAX),
   };
 }
 
@@ -268,6 +293,7 @@ function choseToLeave(role: FoundingRole, rng: RNG): boolean {
   switch (role) {
     case FoundingRole.Explorer:
     case FoundingRole.Leader:
+    case FoundingRole.Caregiver:
       return true;
     case FoundingRole.Outcast:
       return false;
@@ -700,7 +726,7 @@ export function initializeAgents(
       home: { x: position.x, y: position.y }, // provisional; the camp is set at landfall
       drives: generateDrives(blueprint.role, blueprint.nearlyDiedOnCrossing),
       traits: generateTraits(blueprint.role, rng),
-      skills: generateSkills(rng),
+      skills: generateSkills(blueprint.role, rng),
       inventory: { wood: 0, items: [] }, // empty-handed at landfall
       relationships: [],
       lineage: {

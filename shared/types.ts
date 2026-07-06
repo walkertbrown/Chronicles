@@ -28,6 +28,7 @@ export enum FoundingRole {
   Outcast = 'outcast',
   Leader = 'leader',
   Survivor = 'survivor',
+  Caregiver = 'caregiver',
 }
 
 export enum BondType {
