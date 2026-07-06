@@ -85,6 +85,12 @@ export interface SeedMetrics {
   firstRelocationDay: number | null;
   familiesRelocated: number;
 
+  // EventType.RuinExpeditionBegan/Returned — the "rumor of the ruins" trek
+  // (simulation/agents/ruinExpedition.ts). Distinct from familiesRelocated
+  // above: an expedition is a round trip home, not a permanent relocation.
+  expeditionsLaunched: number;
+  expeditionsReturned: number;
+
   populationSamples: number[]; // one entry per sample point, for an optional sparkline
 }
 

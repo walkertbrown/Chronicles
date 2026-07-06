@@ -46,6 +46,11 @@ export enum OutcomeType {
 
   // Family migration
   Migrated = 'migrated',            // Agent is mid-trek relocating to (or just founded) a new hamlet
+
+  // Ruin expedition (agents/ruinExpedition.ts) — the "rumor of the ruins"
+  JourneyedToRuins = 'journeyed_to_ruins',     // outbound leg: traveling toward the ruin cluster
+  SearchedRuins = 'searched_ruins',            // searching phase: checked (or is en route between) ruin tiles
+  ReturnedFromRuins = 'returned_from_ruins',   // returning leg (or just arrived home)
 }
 
 export interface TickOutcome {

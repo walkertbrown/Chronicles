@@ -84,6 +84,12 @@ export enum EventType {
   SourceAwakened = 'source_awakened',         // The source opened for the first time (light or dark) — climactic
   SourceShifted = 'source_shifted',           // Control of the source flipped between light and dark
   Conception = 'conception',                  // A pair bond conceives — begins the gestation arc
+  // agents/ruinExpedition.ts — a curious, unbonded-or-not agent catches the
+  // "rumor of the ruins" and treks to the (otherwise unreachable) ruin cluster
+  // far to the north, searches it, and comes home. See RuinExpeditionBegan's
+  // own comment on the Agent.ruinExpedition field below for why this exists.
+  RuinExpeditionBegan = 'ruin_expedition_began',       // first actual step of the trek (not the trigger tick)
+  RuinExpeditionReturned = 'ruin_expedition_returned', // the agent is back home; marker cleared
 }
 
 // ============================================================
@@ -280,6 +286,28 @@ export interface Agent {
     destY: number
     bestDist: number
     stuckTicks: number
+  } | null
+
+  // Present only while this agent is mid-trek on the "rumor of the ruins"
+  // expedition (see simulation/agents/ruinExpedition.ts) — absent/null for
+  // everyone else, the same lazy-optional pattern as migration above. Solves
+  // the artifact flatline: no existing movement mechanic reliably reaches the
+  // ruin cluster (day-trip forays cap at 60 tiles; family migration stops well
+  // short of it by design), and even an agent standing on a ruin tile never
+  // triggered an artifact check via the shared exploration paths — this field
+  // drives its own explicit search-and-discover stepper instead of touching
+  // those already-tuned paths.
+  ruinExpedition?: {
+    phase: 'outbound' | 'searching' | 'returning'
+    destX: number; destY: number     // outbound: the target ruin tile. searching: the current
+                                      // candidate tile being approached. returning: unused (see homeX/homeY).
+    homeX: number; homeY: number     // where to return to when the expedition ends
+    bestDist: number                 // running best (smallest) distance to the current leg's target —
+                                      // drives the stuck-timeout bailout, mirroring migration's own field
+    stuckTicks: number                // ticks with no improvement on the current leg. -1 is a one-time
+                                      // sentinel: "RuinExpeditionBegan not yet logged" (see actionRuinExpeditionStep)
+    checkedTiles: string[]            // "x_y" ids of ruin tiles already searched this expedition, bounded by maxTilesToSearch
+    maxTilesToSearch: number          // computed once on first entering 'searching', from curiosity — not recomputed per tick
   } | null
 }
 

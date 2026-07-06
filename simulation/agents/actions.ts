@@ -14,6 +14,12 @@ import {
   actionMigrateStep,
   tryBeginMigration,
 } from './migration.js';
+import {
+  hasActiveRuinExpedition,
+  shouldPauseRuinExpeditionForSurvival,
+  actionRuinExpeditionStep,
+  tryBeginRuinExpedition,
+} from './ruinExpedition.js';
 import { COAST_ROW } from '../world/generator.js';
 import {
   findBestWaterTile,
@@ -1817,6 +1823,16 @@ function describeOutcome(outcome: TickOutcome, agent: Agent): string {
       if (!outcome.partial) return 'Founding a new hearth';
       return outcome.success ? 'Traveling to a new hearth' : 'Searching for a way around the ground ahead';
 
+    case OutcomeType.JourneyedToRuins:
+      return outcome.success ? 'Journeying to the ruins' : 'Searching for a way around the ground ahead';
+
+    case OutcomeType.SearchedRuins:
+      return 'Searching the ruins';
+
+    case OutcomeType.ReturnedFromRuins:
+      if (!outcome.partial) return 'Returned from the long trek to the ruins';
+      return outcome.success ? 'Returning from the ruins' : 'Searching for a way around the ground ahead';
+
     case OutcomeType.Wandered:
       return agent.drives.grief > 0.6 ? 'Moving without direction' : 'Wandering';
 
@@ -1827,7 +1843,11 @@ function describeOutcome(outcome: TickOutcome, agent: Agent): string {
       return 'Exploring — standing in the ruins';
 
     case OutcomeType.FoundArtifact:
-      return 'Exploring — found something old';
+      // The ruin-expedition search phase reuses this outcome (see
+      // ruinExpedition.ts) — the marker is still set (phase flipped to
+      // 'returning', not yet cleared) at describe-time, so it distinguishes
+      // a far-trek find from ordinary local exploration.
+      return agent.ruinExpedition != null ? 'Found something old among the far ruins' : 'Exploring — found something old';
 
     case OutcomeType.Fled:
       return 'Fleeing';
@@ -1992,6 +2012,28 @@ export function executeAgentAction(
     // crowded, curious pair. Never moves anyone or logs an event this tick —
     // it only writes markers; the trek begins next tick.
     tryBeginMigration(agent, state, rng);
+  }
+
+  // Ruin expedition: a curious, adult agent unpressed by survival stress
+  // answers the "rumor of the ruins" and treks to the ruin cluster far to the
+  // north — no other mechanic reliably reaches it (see ruinExpedition.ts's
+  // header). Disjoint from both the source pilgrimage above (Conduit-bonded)
+  // and family migration (mutual exclusion is enforced both ways — see
+  // migration.ts's isMigrationEligible and ruinExpedition.ts's own eligibility
+  // check). Survival still comes first — acute stress falls through to
+  // ordinary drive-based dispatch, mirroring the migration hook exactly.
+  if (hasActiveRuinExpedition(agent)) {
+    if (!shouldPauseRuinExpeditionForSurvival(agent)) {
+      const o = actionRuinExpeditionStep(agent, state, rng);
+      outcomes.push(o);
+      agent.currentAction = describeOutcome(o, agent);
+      return;
+    }
+  } else if (!hasActiveMigration(agent)) {
+    // No-op unless this agent rolls the rumor this tick. Never moves anyone
+    // or logs an event this tick — only writes a marker; the trek begins next
+    // tick, mirroring tryBeginMigration exactly.
+    tryBeginRuinExpedition(agent, state, rng);
   }
 
   const drive = getDominantDrive(agent);

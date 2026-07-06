@@ -77,6 +77,11 @@ export function serializeAgentForCheckpoint(a: Agent) {
     // next restore: reverts to ordinary behavior wherever it happened to be,
     // home stays at the old crowded camp, no hamlet ever founds, no error.
     migration: a.migration ?? null,
+    // Ruin expedition marker (agents/ruinExpedition.ts) — present only on the
+    // handful of agents mid-trek. Same reasoning as migration above: without
+    // this, an agent mid-expedition at the exact tick a checkpoint is written
+    // would silently lose its expedition state on the next restore.
+    ruinExpedition: a.ruinExpedition ?? null,
   };
 }
 

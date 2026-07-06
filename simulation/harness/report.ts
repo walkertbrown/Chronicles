@@ -23,7 +23,7 @@ const SEED_COLUMNS = [
   'seed', 'pairDay', 'pairs', 'kin', 'rival', 'concDay', 'conc',
   'birthDay', 'births', 'deaths', 'conflicts', 'migr', 'minY',
   'finalPop', 'peakPop', 'minPop', 'illness', 'artDay', 'artifacts',
-  'scattered', 'relocDay', 'relocated',
+  'scattered', 'relocDay', 'relocated', 'expLaunch', 'expReturn',
 ] as const;
 
 const FANTASY_SEED_COLUMNS = [
@@ -42,6 +42,7 @@ function seedRow(result: SeedResult): string[] {
     fmt(m.firstArtifactFoundDay), String(m.artifactsFound),
     String(m.scatteredArtifactsFound),
     fmt(m.firstRelocationDay), String(m.familiesRelocated),
+    String(m.expeditionsLaunched), String(m.expeditionsReturned),
   ];
   if (result.fantasy === null) return base;
   const f = result.fantasy;
@@ -94,6 +95,8 @@ function formatAggregateBlock(stats: AggregateStats, fantasyStats: FantasyAggreg
     statLine('scatteredArtifactsFound', stats.scatteredArtifactsFound),
     statLine('firstRelocationDay', stats.firstRelocationDay),
     statLine('familiesRelocated', stats.familiesRelocated),
+    statLine('expeditionsLaunched', stats.expeditionsLaunched),
+    statLine('expeditionsReturned', stats.expeditionsReturned),
   ];
 
   if (fantasyStats !== null) {

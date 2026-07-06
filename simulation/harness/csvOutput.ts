@@ -49,6 +49,7 @@ function buildCsv(results: SeedResult[]): string {
     'finalPopulation', 'peakPopulation', 'minPopulation', 'illnessEvents',
     'firstArtifactFoundDay', 'artifactsFound', 'scatteredArtifactsFound',
     'firstRelocationDay', 'familiesRelocated',
+    'expeditionsLaunched', 'expeditionsReturned',
   ];
   if (keepFantasy) {
     header.push(
@@ -74,6 +75,7 @@ function buildCsv(results: SeedResult[]): string {
       m.finalPopulation, m.peakPopulation, m.minPopulation, m.illnessEvents,
       m.firstArtifactFoundDay ?? '', m.artifactsFound, m.scatteredArtifactsFound,
       m.firstRelocationDay ?? '', m.familiesRelocated,
+      m.expeditionsLaunched, m.expeditionsReturned,
     ];
     if (keepFantasy && r.fantasy !== null) {
       base.push(

@@ -121,6 +121,45 @@ const restoredSettled = roundTripThroughBlob(serializedSettled);
 
 assertEqual('settled agent: migration is explicitly null after round trip', restoredSettled.migration, null);
 
+// ---- Case 1b: an agent mid-searching on a ruin expedition (agents/
+// ruinExpedition.ts) — the near-identical bug scenario for the newer field.
+// checkedTiles carries a couple of entries so the array (not just scalars)
+// is proven to survive the gzip+JSON round trip intact. ----
+const questingAgent = makeFakeAgent({
+  id: 'agent_7',
+  position: { x: 1500, y: 720 },
+  ruinExpedition: {
+    phase: 'searching',
+    destX: 1503,
+    destY: 715,
+    homeX: 1480,
+    homeY: 1350,
+    bestDist: 5,
+    stuckTicks: 3,
+    checkedTiles: ['1498_722', '1501_718'],
+    maxTilesToSearch: 4,
+  },
+});
+const serializedQuesting = serializeAgentForCheckpoint(questingAgent);
+const restoredQuesting = roundTripThroughBlob(serializedQuesting);
+
+assertEqual('mid-expedition agent: ruinExpedition field present after round trip', restoredQuesting.ruinExpedition != null, true);
+assertEqual('mid-expedition agent: phase survives', restoredQuesting.ruinExpedition?.phase, 'searching');
+assertEqual('mid-expedition agent: destX/destY survive', [restoredQuesting.ruinExpedition?.destX, restoredQuesting.ruinExpedition?.destY], [1503, 715]);
+assertEqual('mid-expedition agent: homeX/homeY survive', [restoredQuesting.ruinExpedition?.homeX, restoredQuesting.ruinExpedition?.homeY], [1480, 1350]);
+assertEqual('mid-expedition agent: bestDist survives', restoredQuesting.ruinExpedition?.bestDist, 5);
+assertEqual('mid-expedition agent: stuckTicks survives', restoredQuesting.ruinExpedition?.stuckTicks, 3);
+assertEqual('mid-expedition agent: checkedTiles array survives intact', restoredQuesting.ruinExpedition?.checkedTiles, ['1498_722', '1501_718']);
+assertEqual('mid-expedition agent: maxTilesToSearch survives', restoredQuesting.ruinExpedition?.maxTilesToSearch, 4);
+
+// ---- Case 1c: a settled (non-questing) agent — ruinExpedition must read back
+// as null, never undefined/missing, matching migration's own contract. ----
+const settledQuestAgent = makeFakeAgent({ id: 'agent_8' });
+const serializedSettledQuest = serializeAgentForCheckpoint(settledQuestAgent);
+const restoredSettledQuest = roundTripThroughBlob(serializedSettledQuest);
+
+assertEqual('settled agent: ruinExpedition is explicitly null after round trip', restoredSettledQuest.ruinExpedition, null);
+
 // ---- Case 3: state.source, incl. the new extremeSinceTick field (source-contestable) ----
 // Unlike agents, writeCheckpoint's `source: state.source` is a full object
 // reference, not a hand-maintained field allowlist (see firebase.ts's
