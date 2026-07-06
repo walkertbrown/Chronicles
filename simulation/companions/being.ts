@@ -104,7 +104,7 @@ export const CONDUIT_CONSTANTS = {
   // Dark bond eligibility
   DARK_BOND_PROXIMITY_TICKS: 10,    // dark bonds form faster — the pull is stronger
   DARK_BOND_FEAR_SPIKES_MAX: 150,      // dark-bond agents spike fear more, but Conduit still approaches
-  DARK_BOND_AGGRESSION_MIN: 0.50,
+  DARK_BOND_AGGRESSION_MIN: 0.60,
   DARK_BOND_NOBILITY_MAX: 0.50,
 
   // Availability floor: no bond (light or dark) can form before this tick,
