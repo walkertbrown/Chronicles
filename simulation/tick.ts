@@ -100,6 +100,8 @@ export function createWorldState(seed: number, worldId: string): WorldState {
     lastChronicleGeneratedAt: null,
     lastSummaryGeneratedAt: null,
     latestSummary: null,
+    resolvedVoteCycleIds: [],
+    lastAuthoredVoteCycleId: null,
   };
 
   state.conduits = createConduits(world.conduits, state);

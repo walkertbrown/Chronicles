@@ -42,6 +42,12 @@ const NARRATIVE_WEIGHTS: Record<EventType, number> = {
   // the higher-weight ArtifactFound event above.
   [EventType.RuinExpeditionBegan]: 0.5,
   [EventType.RuinExpeditionReturned]: 0.55,
+  // Audience-voting Phase 2 (simulation/audience/) — a resolved web-visitor
+  // vote's effect, logged as a real but deliberately minor event. Lowest
+  // weight in this table on purpose: below ConduitSighting (0.35), the
+  // previous lowest, so the narrator treats it as background color, never a
+  // headline beat.
+  [EventType.AudienceBreath]: 0.3,
 };
 
 // ============================================================

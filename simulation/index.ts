@@ -10,6 +10,7 @@ import { generateChronicle, shouldGenerateChronicle, ensurePrologueSeeded } from
 import { generateSummary, shouldGenerateSummary } from './summary/generator.js';
 import { startServer } from './server.js';
 import { writeCheckpoint, writeAgentPositions, loadCheckpoint } from './firebase.js';
+import { runAudienceVoteTick } from './audience/voteConsumer.js';
 
 const WORLD_ID = 'world_sample_01';
 const SEED = 42;
@@ -163,6 +164,14 @@ async function main(): Promise<void> {
     const tickResult = tick(state, rng);
     void writeAgentPositions(state).catch(() => {});
     if (state.tick % CHECKPOINT_TICK_INTERVAL === 0) void writeCheckpoint(state).catch(() => {});
+    // Audience voting (Phase 2) — sim-authoritative cycle authoring + vote
+    // resolution. Cheap in-memory gated internally; only touches Firebase
+    // (voteCycles/voteTallies — never the checkpoint doc or /live) when the
+    // open cycle id actually changes or a resolve is actually due. Never
+    // writes the checkpoint doc or RTDB /live from this call.
+    void runAudienceVoteTick(state, Date.now()).catch((err: unknown) => {
+      console.error('Audience vote tick failed:', err);
+    });
 
     const justLanded = tickResult.landingOccurred;
     // Landing is the single most important state transition. Persist it immediately

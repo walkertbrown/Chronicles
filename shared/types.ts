@@ -90,6 +90,11 @@ export enum EventType {
   // own comment on the Agent.ruinExpedition field below for why this exists.
   RuinExpeditionBegan = 'ruin_expedition_began',       // first actual step of the trek (not the trigger tick)
   RuinExpeditionReturned = 'ruin_expedition_returned', // the agent is back home; marker cleared
+  // Audience-voting Phase 2 (simulation/audience/) — the resolved effect of a
+  // winning web-visitor vote applied to a pinned target. Deliberately the
+  // lowest-weight event type: a real, low-key event the narrator MAY reference,
+  // never invented, never high-weight. See simulation/events/log.ts's weights map.
+  AudienceBreath = 'audience_breath',
 }
 
 // ============================================================
@@ -554,4 +559,10 @@ export interface WorldState {
   lastChronicleGeneratedAt: string | null   // real-world ISO timestamp of last chronicle generation. null until first page fires
   lastSummaryGeneratedAt: string | null     // real-world ISO timestamp of last summary generation. null until first summary fires
   latestSummary: WorldSummary | null    // most recent hourly summary; null until first fires
+
+  // Audience-voting Phase 2 (simulation/audience/) — the sim is authoritative
+  // for what each 6-hour vote cycle is about and applies the winning vote's
+  // effect. Both world-level (not per-agent). See simulation/audience/voteConsumer.ts.
+  resolvedVoteCycleIds: string[]        // cycle ids already resolved (applied-or-noop), bounded to last 64
+  lastAuthoredVoteCycleId: string | null // cycle id most recently authored (voteCycles/{id} written); null until first
 }

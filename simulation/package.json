@@ -8,7 +8,8 @@
     "build": "tsc && tsc-alias",
     "start": "npm run build && node dist/simulation/index.js",
     "typecheck": "tsc --noEmit",
-    "verify:checkpoint": "npm run build && node dist/simulation/scripts/checkpointRoundTrip.js"
+    "verify:checkpoint": "npm run build && node dist/simulation/scripts/checkpointRoundTrip.js",
+    "verify:votes": "npm run build && node dist/simulation/scripts/voteEffectsCheck.js"
   },
   "keywords": [],
   "author": "",

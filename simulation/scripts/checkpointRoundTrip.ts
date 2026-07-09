@@ -15,7 +15,7 @@
 
 import { gzipSync, gunzipSync } from 'node:zlib';
 import type { Agent, Source } from '@shared/types.js';
-import { serializeAgentForCheckpoint } from '../firebase.js';
+import { serializeAgentForCheckpoint, applyVoteFieldDefaults } from '../firebase.js';
 
 function makeFakeAgent(overrides: Partial<Agent> = {}): Agent {
   const base: Agent = {
@@ -184,6 +184,62 @@ const dormantSource: Source = {
 };
 const restoredDormantSource = roundTripThroughBlob(dormantSource);
 assertEqual('dormant source: extremeSinceTick is explicitly null after round trip', restoredDormantSource.extremeSinceTick, null);
+
+// ---- Case 4: audience-voting Phase 2 world-level fields
+// (resolvedVoteCycleIds, lastAuthoredVoteCycleId) — same rationale as
+// migration/ruinExpedition above: writeCheckpoint's checkpoint object is a
+// hand-maintained field-by-field literal (see firebase.ts), so a field left
+// out of that literal would be silently and permanently dropped. These are
+// WORLD-level (not per-agent), so exercised directly rather than through
+// serializeAgentForCheckpoint. ----
+const pinnedVoteFields = {
+  resolvedVoteCycleIds: ['c10', 'c11', 'c12'],
+  lastAuthoredVoteCycleId: 'c13',
+};
+const restoredPinnedVoteFields = roundTripThroughBlob(pinnedVoteFields);
+assertEqual(
+  'vote fields: resolvedVoteCycleIds survives round trip',
+  restoredPinnedVoteFields.resolvedVoteCycleIds,
+  ['c10', 'c11', 'c12'],
+);
+assertEqual(
+  'vote fields: lastAuthoredVoteCycleId survives round trip',
+  restoredPinnedVoteFields.lastAuthoredVoteCycleId,
+  'c13',
+);
+
+const emptyVoteFields = {
+  resolvedVoteCycleIds: [] as string[],
+  lastAuthoredVoteCycleId: null as string | null,
+};
+const restoredEmptyVoteFields = roundTripThroughBlob(emptyVoteFields);
+assertEqual(
+  'vote fields: empty resolvedVoteCycleIds survives round trip',
+  restoredEmptyVoteFields.resolvedVoteCycleIds,
+  [],
+);
+assertEqual(
+  'vote fields: null lastAuthoredVoteCycleId survives round trip',
+  restoredEmptyVoteFields.lastAuthoredVoteCycleId,
+  null,
+);
+
+// ---- Case 4b: an OLD checkpoint written before these fields existed (the
+// keys are entirely absent, not just null) must load back with the
+// documented defaults ([] and null) via the exact function loadCheckpoint
+// calls — proven directly, without touching Firestore. ----
+const oldCheckpointShape: { resolvedVoteCycleIds?: unknown; lastAuthoredVoteCycleId?: unknown } = {};
+applyVoteFieldDefaults(oldCheckpointShape);
+assertEqual(
+  'old checkpoint: resolvedVoteCycleIds defaults to [] when absent',
+  oldCheckpointShape.resolvedVoteCycleIds,
+  [],
+);
+assertEqual(
+  'old checkpoint: lastAuthoredVoteCycleId defaults to null when absent',
+  oldCheckpointShape.lastAuthoredVoteCycleId,
+  null,
+);
 
 console.log(failures === 0 ? '\nAll checkpoint round-trip checks passed.' : `\n${failures} checkpoint round-trip check(s) FAILED.`);
 process.exit(failures === 0 ? 0 : 1);

@@ -10,7 +10,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let initialized = false;
 
-function getApp(): admin.app.App {
+// Exported so other Firebase-touching modules (e.g. simulation/audience/
+// voteFirebase.ts) can reuse the SAME initialized app/credential rather than
+// creating a second Firebase app or a second credential path.
+export function getApp(): admin.app.App {
   if (!initialized) {
     let serviceAccount: object;
 
@@ -111,6 +114,12 @@ export async function writeCheckpoint(state: WorldState): Promise<void> {
       lastChronicleGeneratedAt: state.lastChronicleGeneratedAt,
       lastSummaryGeneratedAt: state.lastSummaryGeneratedAt,
       eventLog: state.eventLog.slice(-500),
+      // Audience-voting Phase 2 world-level fields (shared/types.ts WorldState).
+      // Field-by-field literal, not a `...state` spread — an omitted field here
+      // is silently and permanently dropped (see Agent.migration/ruinExpedition
+      // history above for why this list is maintained by hand).
+      resolvedVoteCycleIds: state.resolvedVoteCycleIds,
+      lastAuthoredVoteCycleId: state.lastAuthoredVoteCycleId,
     };
     // The structured checkpoint outgrew Firestore's per-document index-entry
     // limit ("too many index entries") as agents explored more tiles. Store the
@@ -177,6 +186,22 @@ export async function writeAgentPositions(state: WorldState): Promise<void> {
   }
 }
 
+// Extracted from loadCheckpoint so the exact same default-backfill logic used
+// in production can be exercised by a round-trip test without touching
+// Firestore (see scripts/checkpointRoundTrip.ts) — no behavior change.
+// Mutates in place, mirroring the other backfill loops in loadCheckpoint.
+export function applyVoteFieldDefaults(state: {
+  resolvedVoteCycleIds?: unknown;
+  lastAuthoredVoteCycleId?: unknown;
+}): void {
+  if (!Array.isArray(state.resolvedVoteCycleIds)) {
+    (state as { resolvedVoteCycleIds: string[] }).resolvedVoteCycleIds = [];
+  }
+  if (typeof state.lastAuthoredVoteCycleId !== 'string' && state.lastAuthoredVoteCycleId !== null) {
+    (state as { lastAuthoredVoteCycleId: string | null }).lastAuthoredVoteCycleId = null;
+  }
+}
+
 export async function loadCheckpoint(worldId: string): Promise<WorldState | null> {
   try {
     const app = getApp();
@@ -237,6 +262,9 @@ export async function loadCheckpoint(worldId: string): Promise<WorldState | null
         rec.fearSpikes = 0;
       }
     }
+    // Audience-voting Phase 2 fields were added after the live world deployed.
+    // Pre-existing checkpoints won't have them — default so resume is clean.
+    applyVoteFieldDefaults(state);
     console.log(`Checkpoint loaded — tick ${state.tick}, day ${state.day}`);
     return state;
   } catch (err) {

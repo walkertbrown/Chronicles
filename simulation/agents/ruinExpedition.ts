@@ -139,7 +139,10 @@ function isUnbonded(agent: Agent): boolean {
   return true;
 }
 
-function isRuinRumorEligible(agent: Agent): boolean {
+// Exported so the audience-voting "wanderer" vote effect (simulation/audience/
+// voteTargets.ts) can reuse this exact eligibility logic for target selection
+// rather than reimplementing it — see effect #3 in the audience-voting plan.
+export function isRuinRumorEligible(agent: Agent): boolean {
   if (agent.traits.curiosity < RUIN_RUMOR_CONSTANTS.RUIN_RUMOR_CURIOSITY) return false;
   if (agent.age < RUIN_RUMOR_CONSTANTS.RUIN_RUMOR_MIN_AGE) return false;
   if (isInAcuteSurvivalStress(agent)) return false;
@@ -149,14 +152,13 @@ function isRuinRumorEligible(agent: Agent): boolean {
   return true;
 }
 
-// Evaluated once per eligible agent per tick (called from actions.ts only when
-// the agent isn't already on an expedition and isn't mid-migration). Writes a
-// marker only — no movement, no event this tick. The trek begins next tick,
-// mirroring tryBeginMigration exactly.
-export function tryBeginRuinExpedition(agent: Agent, state: WorldState, rng: () => number): void {
-  if (!isRuinRumorEligible(agent)) return;
-  if (rng() >= RUIN_RUMOR_CONSTANTS.RUIN_RUMOR_BASE_CHANCE) return;
-
+// The actual marker-seeding logic, shared by the real random trigger
+// (tryBeginRuinExpedition below) and the audience-voting "wanderer" effect
+// (beginRuinExpedition below, simulation/audience/voteEffects.ts) — seeds
+// agent.ruinExpedition exactly the same way either path is reached. No rng
+// use here; the only randomness in the real trigger is the probability gate
+// in tryBeginRuinExpedition, already resolved before this runs.
+function seedExpeditionMarker(agent: Agent, state: WorldState): void {
   const ruinTiles = getRuinClusterTiles(state);
   if (ruinTiles.length === 0) return; // no viable destination this seed's cluster — try again later
 
@@ -202,6 +204,30 @@ export function tryBeginRuinExpedition(agent: Agent, state: WorldState, rng: () 
     checkedTiles: [],
     maxTilesToSearch: 0, // computed once on first entering 'searching'
   };
+}
+
+// Evaluated once per eligible agent per tick (called from actions.ts only when
+// the agent isn't already on an expedition and isn't mid-migration). Writes a
+// marker only — no movement, no event this tick. The trek begins next tick,
+// mirroring tryBeginMigration exactly.
+export function tryBeginRuinExpedition(agent: Agent, state: WorldState, rng: () => number): void {
+  if (!isRuinRumorEligible(agent)) return;
+  if (rng() >= RUIN_RUMOR_CONSTANTS.RUIN_RUMOR_BASE_CHANCE) return;
+  seedExpeditionMarker(agent, state);
+}
+
+// Audience-voting "wanderer" effect (simulation/audience/voteEffects.ts) —
+// directly seeds the expedition marker with NO rng call: no eligibility
+// re-check (the caller already selected this agent via isRuinRumorEligible
+// at target-selection time and/or re-validated liveness at resolve time) and
+// no probability gate. Defensively refuses to stomp an expedition/migration
+// marker that may have started independently in the meantime, since either
+// would otherwise be silently overwritten — the same class of bug the
+// checkpoint round-trip tests above guard against for these very fields.
+export function beginRuinExpedition(agent: Agent, state: WorldState): void {
+  if (hasActiveRuinExpedition(agent)) return;
+  if (hasActiveMigration(agent)) return;
+  seedExpeditionMarker(agent, state);
 }
 
 // ============================================================
