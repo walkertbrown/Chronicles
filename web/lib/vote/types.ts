@@ -27,3 +27,21 @@ export interface TallyCounts {
   withhold: number;
   total: number;
 }
+
+// ── Sim-authored vote cycles (voteCycles/{cycleId}) ──────────────────────────
+// Phase 1.5: a separate sim-side branch (feat/audience-sim) now picks the
+// vote type and target(s) for each cycle and writes a decision doc at
+// voteCycles/{cycleId}. The full contract also carries targetIds (internal
+// sim agent/structure ids), worldDay, and openedAtTick — the browser never
+// needs those, and targetIds specifically must never reach the client (see
+// app/api/cycle/route.ts), so this type only captures what the web uses.
+//
+// 'wanderer' and 'bless' are sim-side types with no shipped web template yet
+// (voteCopy.ts's promptForType returns null for them) — that's an approved,
+// expected gap, not a bug. See voteCopy.ts for the fallback behavior.
+export type VoteCycleType = 'steady' | 'bond' | 'wanderer' | 'cool' | 'bless';
+
+export interface VoteCycleDoc {
+  type: VoteCycleType;
+  flavorNames: string[];
+}

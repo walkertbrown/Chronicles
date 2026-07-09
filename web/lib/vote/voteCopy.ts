@@ -11,7 +11,7 @@
 // vote is "about" is flavor text only in phase 1; phase 2 is what gives an id
 // a real target.
 import type { AgentSnapshot, WorldSnapshot } from '../types';
-import type { VoteOptionId, VotePrompt } from './types';
+import type { VoteCycleType, VoteOptionId, VotePrompt } from './types';
 import { cycleHashIndex } from './voteCycle';
 
 export const VALID_OPTION_IDS: readonly VoteOptionId[] = ['primary', 'secondary', 'withhold'];
@@ -38,11 +38,11 @@ function struggleScore(a: AgentSnapshot): number {
   return a.drives.hunger * 0.5 + a.drives.fear * 0.3 + a.drives.grief * 0.2;
 }
 
-function blessingPrompt(world: WorldSnapshot | null): VotePrompt {
-  const living = livingAgents(world);
-  const subject = living.length > 0 ? [...living].sort((a, b) => struggleScore(b) - struggleScore(a))[0] : undefined;
-  const name = subject !== undefined ? fullName(subject) : 'One soul among them';
-
+// Rendering is split from subject-selection so the same owner-authored copy
+// backs both the client-derived path (world-computed subject, below) and the
+// sim-authored path (promptForType, at the bottom of this file — the sim
+// already picked the subject, it just needs rendering).
+function renderBlessing(name: string): VotePrompt {
   return {
     templateId: 'blessing',
     kicker: 'A watcher’s breath may reach one soul this day.',
@@ -67,6 +67,13 @@ function blessingPrompt(world: WorldSnapshot | null): VotePrompt {
   };
 }
 
+function blessingPrompt(world: WorldSnapshot | null): VotePrompt {
+  const living = livingAgents(world);
+  const subject = living.length > 0 ? [...living].sort((a, b) => struggleScore(b) - struggleScore(a))[0] : undefined;
+  const name = subject !== undefined ? fullName(subject) : 'One soul among them';
+  return renderBlessing(name);
+}
+
 // ── Template 2 — Favor a budding bond ────────────────────────────────────────
 // §B vote type 2. "Budding" = meaningful trust that hasn't hardened into a
 // named bond yet — a coarse read on the trust value alone, flavor only.
@@ -84,11 +91,7 @@ function pickBuddingPair(world: WorldSnapshot | null): { a: AgentSnapshot; b: Ag
   return best;
 }
 
-function bondPrompt(world: WorldSnapshot | null): VotePrompt {
-  const pair = pickBuddingPair(world);
-  const nameA = pair !== undefined ? fullName(pair.a) : 'One';
-  const nameB = pair !== undefined ? fullName(pair.b) : 'another';
-
+function renderBond(nameA: string, nameB: string): VotePrompt {
   return {
     templateId: 'bond',
     kicker: 'A watcher’s breath may favor one bond this day.',
@@ -113,6 +116,13 @@ function bondPrompt(world: WorldSnapshot | null): VotePrompt {
   };
 }
 
+function bondPrompt(world: WorldSnapshot | null): VotePrompt {
+  const pair = pickBuddingPair(world);
+  const nameA = pair !== undefined ? fullName(pair.a) : 'One';
+  const nameB = pair !== undefined ? fullName(pair.b) : 'another';
+  return renderBond(nameA, nameB);
+}
+
 // ── Template 3 — Cool a rising conflict ──────────────────────────────────────
 // §B vote type 4. Flavor-only proxy for "recent violence": high aggression
 // paired with a low-trust relationship — not a claim that a fight actually
@@ -130,11 +140,7 @@ function pickTension(world: WorldSnapshot | null): { aggressor: AgentSnapshot; o
   return undefined;
 }
 
-function conflictPrompt(world: WorldSnapshot | null): VotePrompt {
-  const tension = pickTension(world);
-  const name = tension !== undefined ? fullName(tension.aggressor) : 'One among them';
-  const otherName = tension !== undefined ? fullName(tension.other) : 'another';
-
+function renderConflict(name: string, otherName: string): VotePrompt {
   return {
     templateId: 'conflict',
     kicker: 'A watcher’s breath may cool one temper this day.',
@@ -159,11 +165,52 @@ function conflictPrompt(world: WorldSnapshot | null): VotePrompt {
   };
 }
 
+function conflictPrompt(world: WorldSnapshot | null): VotePrompt {
+  const tension = pickTension(world);
+  const name = tension !== undefined ? fullName(tension.aggressor) : 'One among them';
+  const otherName = tension !== undefined ? fullName(tension.other) : 'another';
+  return renderConflict(name, otherName);
+}
+
 const TEMPLATES: Array<(world: WorldSnapshot | null) => VotePrompt> = [blessingPrompt, bondPrompt, conflictPrompt];
 
 /** Deterministically picks one of the owner-authored templates for a given
- *  cycle id, so every visitor in the same cycle sees the same prompt. */
+ *  cycle id, so every visitor in the same cycle sees the same prompt. This is
+ *  the FALLBACK renderer — used whenever the sim hasn't authored a matching
+ *  voteCycles/{cycleId} doc yet (see promptForType below for the primary,
+ *  sim-authored path). Kept completely intact by Phase 1.5: still the only
+ *  renderer for a cycle the sim never wrote to. */
 export function getPromptForCycle(cycleId: string, world: WorldSnapshot | null): VotePrompt {
   const idx = cycleHashIndex(cycleId, TEMPLATES.length);
   return TEMPLATES[idx]!(world);
+}
+
+// ── Sim-authored prompts (Phase 1.5) ─────────────────────────────────────────
+// Same owner-authored voice as above, but fed by the sim's own choice of
+// target(s) (voteCycles/{cycleId}.flavorNames) instead of a locally-computed
+// guess. Only 3 of the sim's 5 vote types have shipped web copy so far —
+// 'steady'/'bond'/'cool' line up with the blessing/bond/conflict templates
+// above; 'wanderer' and 'bless' are sim-side types with no web template yet
+// (approved plan: "build all 5 sim-side effects now, web catches up on the
+// missing 2 templates later"). promptForType returns null for those — the
+// caller (useVote.ts) treats null exactly like "not authored" and falls back
+// to getPromptForCycle, it never crashes or renders blank.
+function nameOr(name: string | undefined, fallback: string): string {
+  return name !== undefined && name.trim().length > 0 ? name : fallback;
+}
+
+const TYPE_RENDERERS: Partial<Record<VoteCycleType, (names: string[]) => VotePrompt>> = {
+  steady: (names) => renderBlessing(nameOr(names[0], 'One soul among them')),
+  bond: (names) => renderBond(nameOr(names[0], 'One'), nameOr(names[1], 'another')),
+  cool: (names) => renderConflict(nameOr(names[0], 'One among them'), nameOr(names[1], 'another')),
+};
+
+/** Maps a sim-authored cycle (type + display name(s), from voteCycles/
+ *  {cycleId}) onto the matching owner-authored template. Returns null when
+ *  this type has no shipped web copy yet ('wanderer', 'bless') — the caller
+ *  must treat that identically to "not authored" and fall back to
+ *  getPromptForCycle. */
+export function promptForType(type: VoteCycleType, flavorNames: string[]): VotePrompt | null {
+  const render = TYPE_RENDERERS[type];
+  return render !== undefined ? render(flavorNames) : null;
 }

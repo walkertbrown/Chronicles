@@ -6,12 +6,18 @@
 // Cost-watchdog amendment #1 (hard requirement): fetch /api/tally on open,
 // once immediately after casting, and at most every 30s while the panel
 // stays open. NEVER inherit the 1s polling habit from app/world/page.tsx.
+//
+// Phase 1.5: also fetches /api/cycle once on open (no polling — the sim
+// authors a cycle's decision once, at cycle-open, so it can't change while
+// the panel is open) to check whether the sim authored this cycle's prompt.
+// When it hasn't (yet, or ever, for this type), this falls back to the
+// original Phase 1 client-derivation below — unchanged.
 import { useCallback, useEffect, useState } from 'react';
 import { fetchWorldState } from '../api';
 import type { WorldSnapshot } from '../types';
-import { getPromptForCycle } from './voteCopy';
+import { getPromptForCycle, promptForType } from './voteCopy';
 import { currentCycleId, cycleWindow } from './voteCycle';
-import type { TallyCounts, VoteOptionId, VotePrompt } from './types';
+import type { TallyCounts, VoteCycleType, VoteOptionId, VotePrompt } from './types';
 
 const TALLY_POLL_MS = 30_000;
 const CLOCK_TICK_MS = 60_000; // local re-render only, no network — keeps "closes in" fresh
@@ -76,6 +82,34 @@ async function fetchTallyCounts(cycleId: string): Promise<TallyCounts | null> {
   }
 }
 
+interface CycleApiResponse {
+  ok: boolean;
+  authored?: boolean;
+  type?: string;
+  flavorNames?: string[];
+}
+
+/** Pure fetch, no state — mirrors fetchTallyCounts. Any failure (network,
+ *  the doc not existing yet, a 4xx/5xx from the route, or a `type` this web
+ *  build has no template for) resolves to null, which the caller treats
+ *  identically to "the sim hasn't authored this cycle" — never a crash,
+ *  never a blank panel. Phase 1's client-derivation (getPromptForCycle) is
+ *  what actually renders in every one of those cases. */
+async function fetchAuthoredPrompt(cycleId: string): Promise<VotePrompt | null> {
+  try {
+    const res = await fetch(`/api/cycle?cycleId=${encodeURIComponent(cycleId)}`, { cache: 'no-store' });
+    const data = (await res.json()) as CycleApiResponse;
+    if (!data.ok || data.authored !== true || typeof data.type !== 'string') return null;
+    // promptForType does a plain lookup keyed by VoteCycleType — an
+    // unrecognized string (a future sim type this build predates) just
+    // misses the lookup and returns null, so this cast is safe even though
+    // the value is unchecked JSON off the wire.
+    return promptForType(data.type as VoteCycleType, data.flavorNames ?? []);
+  } catch {
+    return null;
+  }
+}
+
 export interface UseVoteResult {
   prompt: VotePrompt;
   counts: TallyCounts | null;
@@ -97,6 +131,7 @@ export function useVote(): UseVoteResult {
   const [chosenOptionId, setChosenOptionId] = useState<VoteOptionId | null>(() => readStoredChoice(cycleId));
 
   const [world, setWorld] = useState<WorldSnapshot | null>(null);
+  const [authoredPrompt, setAuthoredPrompt] = useState<VotePrompt | null>(null);
   const [counts, setCounts] = useState<TallyCounts | null>(null);
   const [loadingTally, setLoadingTally] = useState(true);
   const [casting, setCasting] = useState(false);
@@ -118,6 +153,22 @@ export function useVote(): UseVoteResult {
       active = false;
     };
   }, []);
+
+  // Cycle-open, once: ask whether the sim authored this cycle (Phase 1.5). No
+  // polling — the sim decides once at cycle-open and that doesn't change for
+  // the rest of the cycle, so one fetch per panel-open is enough. Resolving
+  // to null (not authored, or an unshipped type) just leaves authoredPrompt
+  // at its null default, and `prompt` below falls back to getPromptForCycle
+  // exactly as Phase 1 already worked.
+  useEffect(() => {
+    let active = true;
+    fetchAuthoredPrompt(cycleId).then((p) => {
+      if (active && p !== null) setAuthoredPrompt(p);
+    });
+    return () => {
+      active = false;
+    };
+  }, [cycleId]);
 
   // Tally poll: immediately on mount, then at most every 30s (amendment #1).
   useEffect(() => {
@@ -173,7 +224,9 @@ export function useVote(): UseVoteResult {
   );
 
   return {
-    prompt: getPromptForCycle(cycleId, world),
+    // Sim-authored prompt wins when available; otherwise the Phase 1
+    // client-derived template (unchanged fallback — see voteCopy.ts).
+    prompt: authoredPrompt ?? getPromptForCycle(cycleId, world),
     counts,
     loadingTally,
     hasVoted: chosenOptionId !== null,
