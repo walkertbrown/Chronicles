@@ -11,11 +11,11 @@ import { fetchWorldState } from '../lib/api';
 import type { WorldSnapshot } from '../lib/types';
 import { oracle, Kicker } from '../lib/oracle';
 import { useViewport } from '../lib/useViewport';
+import { WORLD_NAME } from '../lib/worldName';
 
 const c = oracle.c;
 const f = oracle.fonts;
 
-const WORLD_NAME = 'Aethel';
 const WORLD_DESIGNATION = 'WORLD I';
 
 // The god's-eye emblem — concentric gilded rings, radiating ticks, a watching
