@@ -314,3 +314,48 @@ export function logConceptionEvent(
     [mother.familyName],
   );
 }
+
+// ============================================================
+// PUBLIC FEED (web "THE WORLD STIRS" ticker)
+// ============================================================
+
+// Deliberately narrower than SimEvent — no involvedAgents/location/
+// narrativeWeight/threadRelevant. This is the only shape exposed to /state.
+export interface RecentEventFeedItem {
+  id: string;
+  tick: number;
+  day: number;
+  type: EventType;
+  description: string;
+}
+
+const RECENT_EVENTS_MIN_WEIGHT = 0.5;
+
+/**
+ * Curated, read-only feed for the web ticker. Reuses the two existing scan
+ * helpers above rather than a third parallel loop: getSignificantRecentEvents
+ * for the weight cutoff, plus getRecentEventsByType to re-include
+ * AudienceBreath — a resolved vote's effect is deliberately surfaced here even
+ * though (at weight 0.3) it's classified as background color for the
+ * chronicle narrator. Walker wants a visible payoff when a vote lands.
+ */
+export function buildRecentEventsFeed(state: WorldState, limit: number): RecentEventFeedItem[] {
+  const merged = new Map<string, SimEvent>();
+  for (const event of getSignificantRecentEvents(state, RECENT_EVENTS_MIN_WEIGHT, Infinity)) {
+    merged.set(event.id, event);
+  }
+  for (const event of getRecentEventsByType(state, EventType.AudienceBreath, Infinity)) {
+    merged.set(event.id, event);
+  }
+
+  return [...merged.values()]
+    .sort((a, b) => b.tick - a.tick)
+    .slice(0, limit)
+    .map((event) => ({
+      id: event.id,
+      tick: event.tick,
+      day: event.day,
+      type: event.type,
+      description: event.description,
+    }));
+}

@@ -8,6 +8,7 @@ import type { AgentSnapshot, DeadAgentSnapshot, WorldSnapshot } from '../../lib/
 import { tileToSvg, SVG_W, SVG_H } from '../../lib/tileCoords';
 import { oracle, EngravedBar, Kicker, SectionHead, Seal, GiltRings, Segmented, Masthead } from '../../lib/oracle';
 import { VotePanel } from '../../lib/vote/VotePanel';
+import { HappeningsTicker } from '../../lib/ticker/HappeningsTicker';
 import { useViewport } from '../../lib/useViewport';
 import { AtlasMobile, type AtlasMode } from '../../lib/atlasMobile';
 import { LandingInset, landingWindowTiles, type InsetOffset } from '../../lib/landingInset';
@@ -659,6 +660,8 @@ export default function WorldPage() {
           onToggle={() => setBriefOpen((o) => !o)}
         />
       )}
+
+      <HappeningsTicker recentEvents={worldSnapshot?.recentEvents} />
 
       {vp.isMobile ? (
         <AtlasMobile

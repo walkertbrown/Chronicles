@@ -1,3 +1,5 @@
+import type { RecentEvent } from './ticker/types';
+
 export interface SurvivingFamilyMember {
   id: string;
   name: string;
@@ -150,6 +152,7 @@ export interface WorldSnapshot {
   source?: SourceSnapshot;            // the contested device beyond the ruins (optional until sim redeploy)
   tiles: TileSnapshot[];
   latestSummary?: { worldNow: string } | null;
+  recentEvents?: RecentEvent[];       // raw event-log facts for "THE WORLD STIRS" ticker (optional until sim redeploy)
 }
 
 export interface SourceSnapshot {

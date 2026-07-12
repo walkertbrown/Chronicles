@@ -8,10 +8,12 @@ import type {
 } from '@shared/types.js';
 import { EventType } from '@shared/types.js';
 import { getChroniclePages } from './firebase.js';
+import { buildRecentEventsFeed, type RecentEventFeedItem } from './events/log.js';
 import { sourceStateLabel } from './source/source.js';
 
 const PORT = 3001;
 const VESSEL_ZONE_ROW = 30;
+const RECENT_EVENTS_FEED_LIMIT = 25;
 
 function setJsonHeaders(res: http.ServerResponse): void {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -79,6 +81,7 @@ function buildStateSnapshot(state: WorldState): {
     state: 'dormant' | 'light' | 'dark';
   };
   latestSummary: { worldNow: string } | null;
+  recentEvents: RecentEventFeedItem[];
 } {
   const tiles: Array<{
     x: number;
@@ -113,6 +116,16 @@ function buildStateSnapshot(state: WorldState): {
       resources: tile.resources,
       occupants: tile.occupants,
     });
+  }
+
+  // Defensive: the ticker feed is derived, additive, and must never be able
+  // to take down /state for the live production sim — any failure here just
+  // omits the feed for this poll rather than throwing.
+  let recentEvents: RecentEventFeedItem[] = [];
+  try {
+    recentEvents = buildRecentEventsFeed(state, RECENT_EVENTS_FEED_LIMIT);
+  } catch (err) {
+    console.error('recentEvents feed failed (non-fatal):', err);
   }
 
   return {
@@ -172,6 +185,7 @@ function buildStateSnapshot(state: WorldState): {
       state: sourceStateLabel(state.source.control),
     },
     latestSummary: state.latestSummary !== null ? { worldNow: state.latestSummary.worldNow } : null,
+    recentEvents,
   };
 }
 
