@@ -11,6 +11,7 @@
 import type { Agent, SimEvent, WorldState } from '@shared/types.js';
 import { EventType } from '@shared/types.js';
 import { manhattanDistance } from '../world/tiles.js';
+import { CONDUIT_CONSTANTS } from '../companions/being.js';
 
 // ============================================================
 // CONSTANTS
@@ -55,6 +56,22 @@ const LIGHT_SHADOW_AMBITION = 0.0004; // …but flourishing breeds ambition — 
 const DARK_FEAR = 0.0010;          // tyranny: dread spreads
 const DARK_AGGRESSION = 0.0008;    // …and the will to dominate
 
+// The aggression push is PRESSURE, not damage. Two rules keep it from ending the
+// world, both added 2026-07 after a wind-tunnel run showed the old behaviour:
+// a held Source drove EVERY living agent's aggression to a hard 1.000 in ~15
+// world-days and left it there permanently (aggression is a trait and nothing
+// decayed it), conflicts doubled, and 2/3 of the population died inside 20 days
+// — from a stable 54 down to 5 survivors, with no recovery possible. Both
+// polarities did it: dark fast, light slower via the shadow-ambition path.
+//
+//   1. It only touches those already inclined to it — the souls who would
+//      qualify for a dark bond (see CONDUIT_CONSTANTS). The tyranny finds the
+//      willing; it does not conscript the whole village.
+//   2. It is capped per-agent and decays back out once the Source falls dormant,
+//      so a soul can be pushed past their nature for a while but not remade.
+const SOURCE_AGGRESSION_MAX_SHIFT = 0.25;  // most the Source can add to one agent's own aggression
+const SOURCE_AGGRESSION_DECAY = 0.0006;    // per tick, while dormant — unwinds a full push in ~9 world-days
+
 // ============================================================
 // HELPERS
 // ============================================================
@@ -80,23 +97,68 @@ export function sourceStateLabel(control: number): 'dormant' | 'light' | 'dark' 
 // While the source is held, what flows through it touches the living. Light is a
 // golden age that breeds its own shadow (it does NOT pacify — a peace gift would
 // end the story); dark is the return of the old tyranny.
+// Whose aggression the Source can reach: exactly the souls who would answer a
+// dark bond. Thresholds are imported, not copied, so retuning the bond retunes
+// who the tyranny can touch — the two are the same statement about a person.
+function leansDark(agent: Agent): boolean {
+  return (
+    agent.traits.aggression >= CONDUIT_CONSTANTS.DARK_BOND_AGGRESSION_MIN &&
+    agent.traits.nobility <= CONDUIT_CONSTANTS.DARK_BOND_NOBILITY_MAX
+  );
+}
+
+// Push an agent's aggression, honouring the per-agent cap, and record how much
+// of what they now are came from the Source rather than from them.
+function pushAggression(agent: Agent, amount: number): void {
+  const shift = agent.sourceAggressionShift ?? 0;
+  const room = SOURCE_AGGRESSION_MAX_SHIFT - shift;
+  if (room <= 0) return;
+
+  const before = agent.traits.aggression;
+  agent.traits.aggression = clamp01(before + Math.min(amount, room));
+  agent.sourceAggressionShift = shift + (agent.traits.aggression - before); // actual, post-clamp
+}
+
+// Once nothing is held, what the Source put into them drains back out. Their own
+// nature is untouched — only the borrowed part leaves.
+function relaxAggression(agent: Agent): void {
+  const shift = agent.sourceAggressionShift ?? 0;
+  if (shift <= 0) return;
+
+  const back = Math.min(SOURCE_AGGRESSION_DECAY, shift);
+  const before = agent.traits.aggression;
+  agent.traits.aggression = clamp01(before - back);
+  agent.sourceAggressionShift = shift - (before - agent.traits.aggression); // actual, post-clamp
+}
+
 function applySourceEffects(state: WorldState, control: number): void {
-  if (Math.abs(control) < SOURCE_AWAKE_THRESHOLD) return; // dormant — nothing flows
+  const dormant = Math.abs(control) < SOURCE_AWAKE_THRESHOLD;
 
   for (const agent of state.agents) {
     if (!agent.alive) continue;
+
+    if (dormant) {
+      relaxAggression(agent); // nothing flows — the pressure bleeds off
+      continue;
+    }
+
     if (control > 0) {
       // Golden age: bodies mend and spirits lift…
       agent.healthScore = clamp01(agent.healthScore + LIGHT_HEAL * control);
       agent.drives.grief = clamp01(agent.drives.grief - LIGHT_HEAL * control);
-      // …but the brighter the light, the sharper the shadow: ambition rises, so
-      // the conditions for a dark turn grow even in a flourishing world.
-      agent.traits.aggression = clamp01(agent.traits.aggression + LIGHT_SHADOW_AMBITION * control);
+      // …but the brighter the light, the sharper the shadow: ambition rises in
+      // those with the appetite for it, so a dark turn stays possible even in a
+      // flourishing world. It does NOT reach the whole population.
+      if (leansDark(agent)) pushAggression(agent, LIGHT_SHADOW_AMBITION * control);
+      else relaxAggression(agent);
     } else {
-      // The old gods press back through: dread and the will to dominate spread.
+      // The old gods press back through. Dread spreads to everyone — dread is a
+      // drive, it decays on its own, and a whole village can be afraid. The will
+      // to dominate only finds those already carrying it.
       const mag = -control;
       agent.drives.fear = clamp01(agent.drives.fear + DARK_FEAR * mag);
-      agent.traits.aggression = clamp01(agent.traits.aggression + DARK_AGGRESSION * mag);
+      if (leansDark(agent)) pushAggression(agent, DARK_AGGRESSION * mag);
+      else relaxAggression(agent);
     }
   }
 }
@@ -152,26 +214,41 @@ export function tickSource(state: WorldState): SimEvent[] {
   const src = state.source;
   const { x, y } = src.position;
 
-  let light = 0;
-  let dark = 0;
+  // Presence is a STANDOFF, not a tug-of-war rope. Souls at the Source cancel
+  // each other one for one, and whoever is left over turns the needle — but the
+  // size of that remainder does not matter: one uncontested soul turns it just
+  // as fast as twenty. 21 light against 20 dark means twenty pairs annul each
+  // other and a single soul is free to do what is necessary; 20 dark against 1
+  // light is likewise settled by one. Nobody compounds.
+  //
+  // The old code summed a per-soul weight of (1 + significanceScore) and scaled
+  // the pull by the MARGIN, which compounded twice over — twenty souls pulled
+  // ~40x a lone pilgrim, so any crowd (and any future wave of arrivals) would
+  // slam the needle to an extreme in a couple of ticks.
+  let lightSouls = 0;
+  let darkSouls = 0;
   let topLight: Agent | undefined;
   let topDark: Agent | undefined;
   for (const agent of state.agents) {
     if (!agent.alive || agent.conduitBondType === null) continue;
     if (manhattanDistance(x, y, agent.position.x, agent.position.y) > PRESENCE_RADIUS) continue;
-    const weight = 1 + agent.significanceScore; // stronger souls pull the needle harder
     if (agent.conduitBondType === 'light') {
-      light += weight;
+      lightSouls += 1;
       if (topLight === undefined || agent.significanceScore > topLight.significanceScore) topLight = agent;
     } else {
-      dark += weight;
+      darkSouls += 1;
       if (topDark === undefined || agent.significanceScore > topDark.significanceScore) topDark = agent;
     }
   }
 
+  // Sign only. A deadlock (equal numbers, including 0-0) turns nothing, and the
+  // needle is left to the decay branches below — a contested Source drifts back
+  // toward dormant exactly like an abandoned one.
+  const holder = Math.sign(lightSouls - darkSouls); // +1 light, -1 dark, 0 deadlocked
+
   const prev = src.control;
-  if (light > 0 || dark > 0) {
-    src.control = clampControl(src.control + SHIFT_RATE * (light - dark));
+  if (holder !== 0) {
+    src.control = clampControl(src.control + SHIFT_RATE * holder);
     // Ambient decay applies even while someone is actively present — pull
     // gently back toward 0 same as UNATTENDED_DECAY below, clamped so it can't
     // overshoot past 0 in one tick.

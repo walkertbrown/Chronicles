@@ -249,6 +249,11 @@ export interface Agent {
 
   conduitId: string | null                  // null until bonded to a Conduit
   conduitBondType: 'light' | 'dark' | null  // null until bonded; set at bond formation
+  // How much of this agent's current aggression was pushed onto them by a held
+  // Source rather than being their own nature (see source/source.ts). Tracked so
+  // the push is reversible: it is capped, and it decays back out of them once the
+  // Source falls dormant. Optional — absent on pre-2026-07 checkpoints, read as 0.
+  sourceAggressionShift?: number
 
   currentAction: string | null              // plain-English description of this tick's action. null until first tick.
 
