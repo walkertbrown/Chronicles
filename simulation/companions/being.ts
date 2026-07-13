@@ -531,6 +531,17 @@ function checkBondEligibility(
   for (const rec of conduit.agentProximityHistory) {
     const agent = findAgentById(state, rec.agentId);
     if (agent === undefined || !agent.alive) continue;
+    // A soul the Conduits have already claimed is not on offer to the rest of
+    // them. The bond is one-to-one on both sides (Agent.conduitId and
+    // ConduitBeing.bondedAgentId are both singular) — but only the Conduit side
+    // was ever enforced, at the top of this function. With 75 Conduits hunting
+    // the ~10-15 agents who clear these gates, every unbonded Conduit piled onto
+    // whoever was already bonded: one soul absorbed dozens of bonds, each firing
+    // a fresh "major narrative event", each stacking another significance
+    // multiplier, and each feeding the Source's bonded-presence reading until it
+    // pinned to an extreme. Measured on seed 1: 225 bond events across just 2-3
+    // distinct bonded agents.
+    if (agent.conduitId !== null) continue;
 
     // ---- Light-condition components (shared by "fully eligible" and "candidate") ----
     const meetsLightFearSpikes = rec.fearSpikes <= lightFearSpikesMax;
