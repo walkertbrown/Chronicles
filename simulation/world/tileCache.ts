@@ -182,10 +182,21 @@ function computeWorldFeatures(seed: number): WorldFeatures {
 // never perturb the world-level stream beyond the coordinate draws below.
 // ============================================================
 
-const SCATTER_ANCHOR_COUNT = 8;
-const SCATTER_X_MIN = 1100;
-const SCATTER_X_MAX = 1900;
-const SCATTER_MAX_ATTEMPTS = 200; // generous cap; never expected to bind
+const SCATTER_ANCHOR_COUNT = 12;
+// Anchors must sit where people actually are. Measured occupancy (agent-position
+// samples, once per world-day, seed 2 x 150 days): x p05 1392 / median 1499 /
+// p95 1510, y p05 1347 / median 1496 / p95 1499 — the population hugs the
+// landing column and the coast. The original band (x 1100-1900, y 1299-1479)
+// held only 6.8% of agent-days, so ~1 of 8 anchors fell near anyone and the
+// rest were seeded into empty map. Widths below are relative to the landing
+// column (vesselStartX) rather than absolute, so they track the settlement.
+const SCATTER_X_HALF_WIDTH = 120;
+const SCATTER_Y_MIN_INLAND = 150; // tiles north of COAST_ROW (outer edge)
+const SCATTER_Y_MAX_INLAND = 6;   // tiles north of COAST_ROW (inner edge)
+// Keep-out around the landing site: an anchor underfoot at camp would be found
+// on the first ticks and turn "everyday discovery" into a day-1 pile-up.
+const SCATTER_LANDING_KEEPOUT = 25;
+const SCATTER_MAX_ATTEMPTS = 400; // generous cap; never expected to bind
 
 function pickScatterAnchors(
   seed: number,
@@ -197,11 +208,14 @@ function pickScatterAnchors(
     vesselStartX: number
   },
 ): Array<{ x: number; y: number }> {
-  // Trafficked band: inland enough to not be right on the coast, but nowhere
-  // near the ruin cluster (y≈599-899) — a clean ~400-tile gap, so no explicit
-  // ruin-distance check is needed since the y-ranges never overlap.
-  const yMin = COAST_ROW - 200; // 1299
-  const yMax = COAST_ROW - 20;  // 1479
+  // Trafficked band: the settled column around the landing site, from just
+  // inland of the coast out to the edge of where anyone routinely ranges. Still
+  // nowhere near the ruin cluster (y≈599-899) — a clean ~450-tile gap, so no
+  // explicit ruin-distance check is needed since the y-ranges never overlap.
+  const yMin = COAST_ROW - SCATTER_Y_MIN_INLAND; // 1349
+  const yMax = COAST_ROW - SCATTER_Y_MAX_INLAND; // 1493
+  const xMin = base.vesselStartX - SCATTER_X_HALF_WIDTH;
+  const xMax = base.vesselStartX + SCATTER_X_HALF_WIDTH;
 
   // determineTerrain only reads riverTiles/forestClusters/ruinCenter/
   // vesselStartX; scatterAnchors itself is irrelevant to terrain classification,
@@ -212,10 +226,12 @@ function pickScatterAnchors(
   const seen = new Set<string>();
 
   for (let attempt = 0; attempt < SCATTER_MAX_ATTEMPTS && anchors.length < SCATTER_ANCHOR_COUNT; attempt++) {
-    const x = rInt(rng, SCATTER_X_MIN, SCATTER_X_MAX);
+    const x = rInt(rng, xMin, xMax);
     const y = rInt(rng, yMin, yMax);
     const key = `${x}:${y}`;
     if (seen.has(key)) continue; // dedupe — retry with a fresh draw next loop
+    const fromLanding = Math.abs(x - base.vesselStartX) + Math.abs(y - COAST_ROW);
+    if (fromLanding < SCATTER_LANDING_KEEPOUT) continue; // not underfoot at camp — retry
     const terrain = determineTerrain(x, y, terrainFeatures, seed);
     if (terrain !== Terrain.Plain && terrain !== Terrain.Forest) continue; // retry with a fresh draw
     seen.add(key);
