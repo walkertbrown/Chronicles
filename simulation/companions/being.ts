@@ -157,8 +157,78 @@ function clamp01(v: number): number {
   return Math.max(0, Math.min(1, v));
 }
 
+// ---- Per-tick agent cache (performance only — no behavioural change) --------
+//
+// findAgentById() used to be state.agents.find(...) — a linear scan — and it is
+// called once per proximity record, per unbonded Conduit, per tick. With 75
+// Conduits and ~50 agents that is ~75 x 50 x 50 = ~190k array walks per tick,
+// ~3 BILLION per 365-day seed. aliveAgents() likewise rebuilt a filtered array
+// several times per Conduit per tick (~450 allocations/tick).
+//
+// This was invisible until the one-Conduit-per-soul fix: the old pile-on bug
+// bonded all 75 Conduits within a few ticks, and a bonded Conduit returns early
+// without scanning. Now ~70 stay unbonded and scan forever. Same work, finally
+// visible. A 365-day seed went from seconds to ~15 minutes.
+//
+// The cache is keyed on the WorldState object AND the tick: the wind tunnel runs
+// many worlds in one process and tick numbers repeat, so a tick-only key would
+// serve seed 2 the agents of seed 1. Rebuilt lazily, so it cannot go stale.
+let cacheState: WorldState | null = null;
+let cacheTick = -1;
+let cacheAlive: Agent[] = [];
+let cacheById: Map<string, Agent> = new Map();
+let cachePercentile: Map<string, number> = new Map();
+let cachePagesMentioned: Map<string, number> = new Map();
+
+function primeAgentCache(state: WorldState): void {
+  cacheState = state;
+  cacheTick = state.tick;
+  cacheAlive = state.agents.filter((a) => a.alive);
+  cacheById = new Map(state.agents.map((a) => [a.id, a])); // ALL agents, not just alive:
+  // updateBondStrength() looks a bonded agent up precisely to discover they died.
+
+  // Significance percentile — was a full copy+sort+findIndex of the population,
+  // PER CANDIDATE, PER CONDUIT, PER TICK. Sort once instead; identical values
+  // (Array.sort is stable, ids are unique, so an agent's index IS its old rank).
+  cachePercentile = new Map();
+  const sorted = [...cacheAlive].sort((a, b) => a.significanceScore - b.significanceScore);
+  const denom = sorted.length - 1;
+  for (let i = 0; i < sorted.length; i++) {
+    cachePercentile.set(sorted[i]!.id, denom <= 0 ? 1.0 : i / denom);
+  }
+
+  // Chronicle mentions — was chroniclePages.filter(...) with a LINEAR eventLog
+  // scan per significant-event id, per page, per candidate, per conduit, per
+  // tick. Since chroniclePages grows all run (a page every 160 ticks), the cost
+  // of one eligibility check grew with the length of the story — this is what
+  // made a 365-day seed take ~15 minutes. Fold it once per tick, event ids
+  // resolved through a Map. A page counts at most once per agent, exactly as
+  // filter().length did.
+  cachePagesMentioned = new Map();
+  const eventById = new Map(state.eventLog.map((e) => [e.id, e]));
+  for (const page of state.chroniclePages) {
+    const mentioned = new Set<string>();
+    for (const thread of page.threads) {
+      if (thread.primaryAgentId !== null) mentioned.add(thread.primaryAgentId);
+    }
+    for (const eventId of page.significantEvents) {
+      const event = eventById.get(eventId);
+      if (event === undefined) continue; // evicted from the capped log — as before
+      for (const id of event.involvedAgents) mentioned.add(id);
+    }
+    for (const id of mentioned) {
+      cachePagesMentioned.set(id, (cachePagesMentioned.get(id) ?? 0) + 1);
+    }
+  }
+}
+
+function agentCacheIsStale(state: WorldState): boolean {
+  return cacheState !== state || cacheTick !== state.tick;
+}
+
 function aliveAgents(state: WorldState): Agent[] {
-  return state.agents.filter((a) => a.alive);
+  if (agentCacheIsStale(state)) primeAgentCache(state);
+  return cacheAlive; // read-only by every caller; never mutated in place
 }
 
 function agentsWithinRadius(
@@ -173,7 +243,8 @@ function agentsWithinRadius(
 }
 
 function findAgentById(state: WorldState, id: string): Agent | undefined {
-  return state.agents.find((a) => a.id === id);
+  if (agentCacheIsStale(state)) primeAgentCache(state);
+  return cacheById.get(id);
 }
 
 function findOrCreateProximityRecord(
@@ -220,11 +291,8 @@ function stepTowardPassable(
 
 // Returns the significance percentile rank of an agent (0.0 = lowest, 1.0 = highest)
 function significancePercentile(agent: Agent, state: WorldState): number {
-  const alive = aliveAgents(state);
-  if (alive.length <= 1) return 1.0;
-  const sorted = [...alive].sort((a, b) => a.significanceScore - b.significanceScore);
-  const rank = sorted.findIndex((a) => a.id === agent.id);
-  return rank / (sorted.length - 1);
+  if (agentCacheIsStale(state)) primeAgentCache(state);
+  return cachePercentile.get(agent.id) ?? 1.0; // absent only if not alive; alive is checked by every caller
 }
 
 // ============================================================
@@ -556,13 +624,9 @@ function checkBondEligibility(
       percentile = significancePercentile(agent, state);
       meetsLightSignificance = percentile >= CONDUIT_CONSTANTS.LIGHT_BOND_SIGNIFICANCE_PERCENTILE;
       if (meetsLightSignificance) {
-        // Chronicle page count check — agent must have been noticed by the story
-        const pagesMentioned = state.chroniclePages.filter((p) =>
-          p.threads.some((t) => t.primaryAgentId === agent.id) ||
-          p.significantEvents.some((eid) =>
-            state.eventLog.find((e) => e.id === eid)?.involvedAgents.includes(agent.id),
-          ),
-        ).length;
+        // Chronicle page count check — agent must have been noticed by the story.
+        // Folded once per tick in primeAgentCache(); same count, same semantics.
+        const pagesMentioned = cachePagesMentioned.get(agent.id) ?? 0;
         meetsLightChronicle = pagesMentioned >= CONDUIT_CONSTANTS.LIGHT_BOND_CHRONICLE_PAGES_MIN;
       }
     }
