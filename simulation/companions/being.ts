@@ -104,8 +104,38 @@ export const CONDUIT_CONSTANTS = {
   // Dark bond eligibility
   DARK_BOND_PROXIMITY_TICKS: 10,    // dark bonds form faster — the pull is stronger
   DARK_BOND_FEAR_SPIKES_MAX: 150,      // dark-bond agents spike fear more, but Conduit still approaches
-  DARK_BOND_AGGRESSION_MIN: 0.60,
+  // 0.55, not 0.60 (swept 2026-07, 8 seeds x 365 days x 6 combinations). This is
+  // the knob that decides whether darkness can reach the Source FIRST, because
+  // it sets the size of the pool dark is fishing in — and dark's pool (3-8 souls)
+  // is far smaller than light's (the top fifth by significance, whose chronicle
+  // mentions accrue automatically because the narrator writes about them).
+  //   0.60 -> 6 light-first / 2 dark-first
+  //   0.55 -> 4 / 4   <- a genuine toss-up, and the healthiest world in the sweep
+  //   0.50 -> 3 / 5, but a world lost 47 souls and ended at 24 people (see below)
+  //
+  // ⚠ This constant is ALSO what leansDark() in source/source.ts reads to decide
+  // whom a held Source can inflame. Widening it widens who the tyranny can reach,
+  // and the extinction starts creeping back: that 47-death world at 0.50 is the
+  // near edge of the collapse this all began with. 0.55 sits safely inside it.
+  // Do not lower it without re-reading finalPopulation, not just the light/dark split.
+  DARK_BOND_AGGRESSION_MIN: 0.55,
+  // Inert in practice — swept 0.50 vs 0.60 and results were byte-identical at
+  // every aggression level. Aggressive souls in this world are already ignoble.
   DARK_BOND_NOBILITY_MAX: 0.50,
+
+  // The wound (see hasDarkWound). ANY one of these three qualifies. Darkness is
+  // not a temperament, it is a temperament the world has already hurt.
+  //
+  // Grief is the clause that actually carries dark's timing (0.30 -> dark NEVER
+  // bonds first in 8/8 worlds; 0.10 -> it can). The other two fire but were never
+  // the binding constraint — a dark-leaning soul carries a fresh violent wound
+  // from about day 20 onward, and hatred appears by day 40; sweeping the hatred
+  // threshold from -0.15 to -0.40 changed literally nothing. They are kept because
+  // they are the right STORY (a beaten man, a man with an enemy) and because they
+  // matter in worlds crueller than seed 1.
+  DARK_BOND_GRIEF_MIN: 0.10,              // they have lost someone
+  DARK_BOND_VIOLENCE_RECENCY_TICKS: 960,  // a wound taken within ~20 world-days still aches
+  DARK_BOND_HATRED_TRUST: -0.40,          // someone they know has become an enemy
 
   // Availability floor: no bond (light or dark) can form before this tick,
   // regardless of how eligible a pair otherwise is. Proximity/fear-spike
@@ -117,7 +147,17 @@ export const CONDUIT_CONSTANTS = {
   // also pulling the median ignition day earlier than intended. 0 = no
   // floor. See simulation/harness/results/ and the commit that applied
   // this retune.
-  CONDUIT_BOND_MIN_TICK: 6720,
+  // 0 = no floor (2026-07). This was 6720 (world-day 140) and it was doing ALL
+  // of the pacing: with it, three of eight worlds ignited on day 140 ON THE DOT
+  // — the gate lifting, not the world deciding. A floor is a calendar; a
+  // simulation should not know the date of its own turning point.
+  //
+  // Removing it is only safe because BOTH paths now demand a history: light
+  // needs significance + chronicle mentions (it always did), and dark now needs
+  // a wound (see hasDarkWound). Ignition is earned on both sides, so it scatters
+  // on its own — which is the whole point. Kept as a tunable knob rather than
+  // deleted so the wind tunnel can put a floor back for comparison.
+  CONDUIT_BOND_MIN_TICK: 0,
 
   // ---- Rival pull ----
   // Once the Source has been pinned to one polarity's extreme (|control| >= 0.9,
@@ -293,6 +333,29 @@ function stepTowardPassable(
 function significancePercentile(agent: Agent, state: WorldState): number {
   if (agentCacheIsStale(state)) primeAgentCache(state);
   return cachePercentile.get(agent.id) ?? 1.0; // absent only if not alive; alive is checked by every caller
+}
+
+// The price of admission to the dark. A Conduit's dark pull finds the wounded —
+// it does not simply find the ill-tempered. Any ONE of the three is enough, and
+// all three are things the world does TO a soul over time, never a roll at
+// birth: they are what makes ignition emergent instead of scheduled.
+//
+//   grief    — they have lost someone ("spikes from loss events, fades slowly")
+//   violence — they carry a wound still fresh from a fight they lost
+//   hatred   — someone they know has become an enemy (trust gone actively hostile)
+function hasDarkWound(agent: Agent, state: WorldState): boolean {
+  if (agent.drives.grief >= CONDUIT_CONSTANTS.DARK_BOND_GRIEF_MIN) return true;
+
+  if (
+    agent.lastViolenceTick !== null &&
+    state.tick - agent.lastViolenceTick <= CONDUIT_CONSTANTS.DARK_BOND_VIOLENCE_RECENCY_TICKS
+  ) {
+    return true;
+  }
+
+  return agent.relationships.some(
+    (rel) => rel.trust <= CONDUIT_CONSTANTS.DARK_BOND_HATRED_TRUST,
+  );
 }
 
 // ============================================================
@@ -648,11 +711,19 @@ function checkBondEligibility(
     }
 
     // ---- Dark eligibility ----
+    // Note the wound. Light has always demanded that the world have HAPPENED to
+    // you — you must be in the top fifth by significance and have been written
+    // about three times, neither of which a founder can step off the boat with.
+    // Dark demanded nothing but a personality roll and a ten-tick loiter, both
+    // available on day 1, which is why the only thing standing between the world
+    // and a day-11 dark bond was a hard calendar floor (CONDUIT_BOND_MIN_TICK).
+    // Now darkness is earned too: it takes a soul the world has already hurt.
     const isDarkEligible =
       rec.totalTicks >= darkProximityTicksRequired &&
       rec.fearSpikes <= darkFearSpikesMax &&
       agent.traits.aggression >= CONDUIT_CONSTANTS.DARK_BOND_AGGRESSION_MIN &&
-      agent.traits.nobility <= CONDUIT_CONSTANTS.DARK_BOND_NOBILITY_MAX;
+      agent.traits.nobility <= CONDUIT_CONSTANTS.DARK_BOND_NOBILITY_MAX &&
+      hasDarkWound(agent, state);
 
     if (isDarkEligible && !isLightCandidate) {
       if (
