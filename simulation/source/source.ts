@@ -19,33 +19,22 @@ import { CONDUIT_CONSTANTS } from '../companions/being.js';
 
 const PRESENCE_RADIUS = 14;        // bonded souls within this drag the needle
 const SHIFT_RATE = 0.015;          // control change per unit of presence imbalance per tick
-const UNATTENDED_DECAY = 0.0015;   // with no one near, the needle drifts back toward dormant
 
-// Always-on drift toward 0, applied every tick regardless of presence (on top
-// of, not instead of, UNATTENDED_DECAY above — the two branches are mutually
-// exclusive per tick, see tickSource()). Without this, a single lone pilgrim's
-// per-tick pull (SHIFT_RATE * weight, weight ~= 1.0-2.0, so 0.015-0.03/tick)
-// saturates control to a bit-for-bit-frozen exact +-1.0 within about a day and
-// it never moves again for the rest of the run (0 sourceFlips ever recorded in
-// wind-tunnel data) — not a hard lock, just compounding one-sided presence with
-// nothing pulling back. This constant is deliberately small relative to a lone
-// pilgrim's pull (0.008 vs. 0.015 minimum) so it does NOT meaningfully delay
-// crossing SOURCE_AWAKE_THRESHOLD (0.15) — that first crossing is dominated by
-// SHIFT_RATE, not this. It only softens the slow approach to +-1.0 under
-// sustained single-polarity presence, and gives an unopposed dominant side a
-// very slight, permanent, ongoing loosening of its grip — the surface a rival
-// pilgrim's opposing presence (or, eventually, the rival-pull bonus in
-// companions/being.ts) has something to push against.
-const AMBIENT_DECAY = 0.008;
+// There is deliberately NO decay toward dormant. The needle holds wherever it
+// was last driven and only moves when a bonded soul is physically present to
+// drive it (see tickSource). A claimed Source stays good or evil until the other
+// side comes and takes it — holding is permanent, only claiming changes it. (An
+// earlier design decayed it back to neutral whenever unattended; that made every
+// change of hands an accident of the holder leaving rather than an act of a
+// challenger. See the tickSource comment for the full rationale.)
 
 // |control| at/above this counts as "awake" — the door is open to one side.
 export const SOURCE_AWAKE_THRESHOLD = 0.15;
 
 // |control| at/above this counts as "pinned to an extreme" — see extremeSinceTick
-// on the Source type. 0.9 rather than 1.0 so a run that's been sitting a hair
-// under the clamp (e.g. nudged down slightly by AMBIENT_DECAY) still counts as
-// dominated — the point is "one side has effectively won for a while," not
-// "control is bit-for-bit exactly +-1.0."
+// on the Source type. 0.9 rather than 1.0 so a Source held a hair under the clamp
+// still counts as dominated — the point is "one side has effectively won for a
+// while," not "control is bit-for-bit exactly +-1.0."
 const EXTREME_THRESHOLD = 0.9;
 
 // Ongoing effects, applied per tick and scaled by |control| (so a barely-open
@@ -241,27 +230,26 @@ export function tickSource(state: WorldState): SimEvent[] {
     }
   }
 
-  // Sign only. A deadlock (equal numbers, including 0-0) turns nothing, and the
-  // needle is left to the decay branches below — a contested Source drifts back
-  // toward dormant exactly like an abandoned one.
-  const holder = Math.sign(lightSouls - darkSouls); // +1 light, -1 dark, 0 deadlocked
+  // Sign only. A deadlock (equal numbers, including 0-0) turns nothing.
+  const holder = Math.sign(lightSouls - darkSouls); // +1 light, -1 dark, 0 nobody
 
   const prev = src.control;
   if (holder !== 0) {
+    // Someone holds it — drag the needle toward them, and let it BUILD and STAY.
     src.control = clampControl(src.control + SHIFT_RATE * holder);
-    // Ambient decay applies even while someone is actively present — pull
-    // gently back toward 0 same as UNATTENDED_DECAY below, clamped so it can't
-    // overshoot past 0 in one tick.
-    if (src.control > 0) {
-      src.control = Math.max(0, src.control - AMBIENT_DECAY);
-    } else if (src.control < 0) {
-      src.control = Math.min(0, src.control + AMBIENT_DECAY);
-    }
-  } else if (src.control > 0) {
-    src.control = Math.max(0, src.control - UNATTENDED_DECAY);
-  } else if (src.control < 0) {
-    src.control = Math.min(0, src.control + UNATTENDED_DECAY);
   }
+  // else: unattended or deadlocked — the needle FREEZES exactly where it is.
+  //
+  // It used to decay back toward dormant whenever no one held it (UNATTENDED_
+  // DECAY / AMBIENT_DECAY). That made a claimed Source impermanent: whoever drove
+  // it to their extreme kept it only while they physically stood there, and the
+  // moment they wandered off / starved / died, the needle slid back to neutral on
+  // its own. So every "handover" measured over 1000-day runs was an ACCIDENT of
+  // the holder leaving, never an act of a challenger — the opposite side never
+  // had to come and take it. Now it does: a claimed Source stays good or evil
+  // until the OTHER side shows up in greater numbers and drags it across zero
+  // themselves. Holding is permanent; only claiming changes it. (This is also
+  // why the two decay constants are gone — nothing pulls toward dormant anymore.)
 
   // Track how long control has been pinned near an extreme (|control| >= 0.9),
   // for the rival-pull bonus in companions/being.ts. Reset the moment it drops
