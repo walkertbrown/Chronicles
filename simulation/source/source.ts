@@ -265,15 +265,25 @@ export function tickSource(state: WorldState): SimEvent[] {
   applySourceEffects(state, src.control);
 
   const events: SimEvent[] = [];
+  // Fire an event on each dormant->awake crossing, and classify it by comparing
+  // this crossing's polarity to the LAST polarity the Source was awake on
+  // (persisted on the Source, so it survives the ~20-tick dormant gap the needle
+  // spends crossing zero when it changes hands). Same side (or first ever) =
+  // 'awakened'; opposite side = 'shifted' — a genuine change of hands.
+  //
+  // The old code compared this tick's control to LAST tick's, so 'shifted' was
+  // unreachable: a sign flip requires |control|>=0.15 on both sides of one tick,
+  // but control moves <=0.015/tick and must pass through the dormant band to
+  // change sign, so it was always dormant (not awake) on one side of the flip.
   const wasAwake = Math.abs(prev) >= SOURCE_AWAKE_THRESHOLD;
   const isAwake = Math.abs(src.control) >= SOURCE_AWAKE_THRESHOLD;
 
   if (!wasAwake && isAwake) {
-    const kind = src.control > 0 ? 'light' : 'dark';
-    events.push(makeSourceEvent(state, kind, 'awakened', kind === 'light' ? topLight : topDark));
-  } else if (wasAwake && isAwake && Math.sign(prev) !== Math.sign(src.control)) {
-    const kind = src.control > 0 ? 'light' : 'dark';
-    events.push(makeSourceEvent(state, kind, 'shifted', kind === 'light' ? topLight : topDark));
+    const kind: 'light' | 'dark' = src.control > 0 ? 'light' : 'dark';
+    const last = src.lastAwakePolarity ?? null;
+    const moment: 'awakened' | 'shifted' = last !== null && last !== kind ? 'shifted' : 'awakened';
+    events.push(makeSourceEvent(state, kind, moment, kind === 'light' ? topLight : topDark));
+    src.lastAwakePolarity = kind;
   }
 
   return events;

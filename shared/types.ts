@@ -542,6 +542,14 @@ export interface Source {
   // world and on any checkpoint written before this field existed (backfilled
   // on restore in simulation/index.ts).
   extremeSinceTick: number | null
+  // The polarity the Source was LAST awake on ('light'/'dark'), or null if it
+  // has never woken. Persists across the dormant gap the needle passes through
+  // when it changes hands — which is why a change of holder can be detected at
+  // all: control must cross |control|<0.15 to change sign, so comparing this
+  // tick's polarity to the previous tick's (the old approach) could never see a
+  // shift. See tickSource(). Optional/absent on pre-2026-07 checkpoints (read as
+  // null, backfilled on restore).
+  lastAwakePolarity?: 'light' | 'dark' | null
 }
 
 export interface WorldState {
