@@ -93,6 +93,7 @@ const CONDUIT_EVENT_TYPES = new Set<EventType>([
   EventType.ConduitBondLight,
   EventType.ConduitBondDark,
   EventType.ConduitBondBroken,
+  EventType.ArtifactImprinted,
 ]);
 const PRIMARY_TRAIT_THRESHOLD = 0.65;
 const SUPPORTING_TRAIT_THRESHOLD = 0.7;
