@@ -135,7 +135,12 @@ async function main(): Promise<void> {
       console.log(
         `Migrating Source from y=${state.source.position.y} to y=${newPos.y} (ruin zone moved inland)`,
       );
-      state.source = { position: newPos, control: state.source.control, extremeSinceTick: state.source.extremeSinceTick ?? null };
+      state.source = {
+        position: newPos,
+        control: state.source.control,
+        extremeSinceTick: state.source.extremeSinceTick ?? null,
+        lastAwakePolarity: state.source.lastAwakePolarity ?? null,
+      };
     }
     // extremeSinceTick (rival-pull mechanic) was added after this checkpoint was
     // written — backfill so a resumed world's source object always has the
@@ -144,6 +149,15 @@ async function main(): Promise<void> {
     // miss; explicit null is the documented "not currently pinned" value).
     if (typeof state.source.extremeSinceTick !== 'number' && state.source.extremeSinceTick !== null) {
       state.source.extremeSinceTick = null;
+    }
+    // lastAwakePolarity (Source change-of-hands detection) was added later still.
+    // Backfill from the CURRENT control so a resumed world doesn't misread its
+    // first post-restore crossing as a shift: a Source already awake is treated
+    // as last-awake on the side it is currently held.
+    if (state.source.lastAwakePolarity === undefined) {
+      const c = state.source.control;
+      state.source.lastAwakePolarity =
+        c >= 0.15 ? 'light' : c <= -0.15 ? 'dark' : null;
     }
   }
   process.on('SIGINT', () => {

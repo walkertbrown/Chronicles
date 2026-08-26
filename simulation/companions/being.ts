@@ -104,8 +104,38 @@ export const CONDUIT_CONSTANTS = {
   // Dark bond eligibility
   DARK_BOND_PROXIMITY_TICKS: 10,    // dark bonds form faster — the pull is stronger
   DARK_BOND_FEAR_SPIKES_MAX: 150,      // dark-bond agents spike fear more, but Conduit still approaches
-  DARK_BOND_AGGRESSION_MIN: 0.60,
+  // 0.55, not 0.60 (swept 2026-07, 8 seeds x 365 days x 6 combinations). This is
+  // the knob that decides whether darkness can reach the Source FIRST, because
+  // it sets the size of the pool dark is fishing in — and dark's pool (3-8 souls)
+  // is far smaller than light's (the top fifth by significance, whose chronicle
+  // mentions accrue automatically because the narrator writes about them).
+  //   0.60 -> 6 light-first / 2 dark-first
+  //   0.55 -> 4 / 4   <- a genuine toss-up, and the healthiest world in the sweep
+  //   0.50 -> 3 / 5, but a world lost 47 souls and ended at 24 people (see below)
+  //
+  // ⚠ This constant is ALSO what leansDark() in source/source.ts reads to decide
+  // whom a held Source can inflame. Widening it widens who the tyranny can reach,
+  // and the extinction starts creeping back: that 47-death world at 0.50 is the
+  // near edge of the collapse this all began with. 0.55 sits safely inside it.
+  // Do not lower it without re-reading finalPopulation, not just the light/dark split.
+  DARK_BOND_AGGRESSION_MIN: 0.55,
+  // Inert in practice — swept 0.50 vs 0.60 and results were byte-identical at
+  // every aggression level. Aggressive souls in this world are already ignoble.
   DARK_BOND_NOBILITY_MAX: 0.50,
+
+  // The wound (see hasDarkWound). ANY one of these three qualifies. Darkness is
+  // not a temperament, it is a temperament the world has already hurt.
+  //
+  // Grief is the clause that actually carries dark's timing (0.30 -> dark NEVER
+  // bonds first in 8/8 worlds; 0.10 -> it can). The other two fire but were never
+  // the binding constraint — a dark-leaning soul carries a fresh violent wound
+  // from about day 20 onward, and hatred appears by day 40; sweeping the hatred
+  // threshold from -0.15 to -0.40 changed literally nothing. They are kept because
+  // they are the right STORY (a beaten man, a man with an enemy) and because they
+  // matter in worlds crueller than seed 1.
+  DARK_BOND_GRIEF_MIN: 0.10,              // they have lost someone
+  DARK_BOND_VIOLENCE_RECENCY_TICKS: 960,  // a wound taken within ~20 world-days still aches
+  DARK_BOND_HATRED_TRUST: -0.40,          // someone they know has become an enemy
 
   // Availability floor: no bond (light or dark) can form before this tick,
   // regardless of how eligible a pair otherwise is. Proximity/fear-spike
@@ -117,7 +147,17 @@ export const CONDUIT_CONSTANTS = {
   // also pulling the median ignition day earlier than intended. 0 = no
   // floor. See simulation/harness/results/ and the commit that applied
   // this retune.
-  CONDUIT_BOND_MIN_TICK: 6720,
+  // 0 = no floor (2026-07). This was 6720 (world-day 140) and it was doing ALL
+  // of the pacing: with it, three of eight worlds ignited on day 140 ON THE DOT
+  // — the gate lifting, not the world deciding. A floor is a calendar; a
+  // simulation should not know the date of its own turning point.
+  //
+  // Removing it is only safe because BOTH paths now demand a history: light
+  // needs significance + chronicle mentions (it always did), and dark now needs
+  // a wound (see hasDarkWound). Ignition is earned on both sides, so it scatters
+  // on its own — which is the whole point. Kept as a tunable knob rather than
+  // deleted so the wind tunnel can put a floor back for comparison.
+  CONDUIT_BOND_MIN_TICK: 0,
 
   // ---- Rival pull ----
   // Once the Source has been pinned to one polarity's extreme (|control| >= 0.9,
@@ -157,8 +197,78 @@ function clamp01(v: number): number {
   return Math.max(0, Math.min(1, v));
 }
 
+// ---- Per-tick agent cache (performance only — no behavioural change) --------
+//
+// findAgentById() used to be state.agents.find(...) — a linear scan — and it is
+// called once per proximity record, per unbonded Conduit, per tick. With 75
+// Conduits and ~50 agents that is ~75 x 50 x 50 = ~190k array walks per tick,
+// ~3 BILLION per 365-day seed. aliveAgents() likewise rebuilt a filtered array
+// several times per Conduit per tick (~450 allocations/tick).
+//
+// This was invisible until the one-Conduit-per-soul fix: the old pile-on bug
+// bonded all 75 Conduits within a few ticks, and a bonded Conduit returns early
+// without scanning. Now ~70 stay unbonded and scan forever. Same work, finally
+// visible. A 365-day seed went from seconds to ~15 minutes.
+//
+// The cache is keyed on the WorldState object AND the tick: the wind tunnel runs
+// many worlds in one process and tick numbers repeat, so a tick-only key would
+// serve seed 2 the agents of seed 1. Rebuilt lazily, so it cannot go stale.
+let cacheState: WorldState | null = null;
+let cacheTick = -1;
+let cacheAlive: Agent[] = [];
+let cacheById: Map<string, Agent> = new Map();
+let cachePercentile: Map<string, number> = new Map();
+let cachePagesMentioned: Map<string, number> = new Map();
+
+function primeAgentCache(state: WorldState): void {
+  cacheState = state;
+  cacheTick = state.tick;
+  cacheAlive = state.agents.filter((a) => a.alive);
+  cacheById = new Map(state.agents.map((a) => [a.id, a])); // ALL agents, not just alive:
+  // updateBondStrength() looks a bonded agent up precisely to discover they died.
+
+  // Significance percentile — was a full copy+sort+findIndex of the population,
+  // PER CANDIDATE, PER CONDUIT, PER TICK. Sort once instead; identical values
+  // (Array.sort is stable, ids are unique, so an agent's index IS its old rank).
+  cachePercentile = new Map();
+  const sorted = [...cacheAlive].sort((a, b) => a.significanceScore - b.significanceScore);
+  const denom = sorted.length - 1;
+  for (let i = 0; i < sorted.length; i++) {
+    cachePercentile.set(sorted[i]!.id, denom <= 0 ? 1.0 : i / denom);
+  }
+
+  // Chronicle mentions — was chroniclePages.filter(...) with a LINEAR eventLog
+  // scan per significant-event id, per page, per candidate, per conduit, per
+  // tick. Since chroniclePages grows all run (a page every 160 ticks), the cost
+  // of one eligibility check grew with the length of the story — this is what
+  // made a 365-day seed take ~15 minutes. Fold it once per tick, event ids
+  // resolved through a Map. A page counts at most once per agent, exactly as
+  // filter().length did.
+  cachePagesMentioned = new Map();
+  const eventById = new Map(state.eventLog.map((e) => [e.id, e]));
+  for (const page of state.chroniclePages) {
+    const mentioned = new Set<string>();
+    for (const thread of page.threads) {
+      if (thread.primaryAgentId !== null) mentioned.add(thread.primaryAgentId);
+    }
+    for (const eventId of page.significantEvents) {
+      const event = eventById.get(eventId);
+      if (event === undefined) continue; // evicted from the capped log — as before
+      for (const id of event.involvedAgents) mentioned.add(id);
+    }
+    for (const id of mentioned) {
+      cachePagesMentioned.set(id, (cachePagesMentioned.get(id) ?? 0) + 1);
+    }
+  }
+}
+
+function agentCacheIsStale(state: WorldState): boolean {
+  return cacheState !== state || cacheTick !== state.tick;
+}
+
 function aliveAgents(state: WorldState): Agent[] {
-  return state.agents.filter((a) => a.alive);
+  if (agentCacheIsStale(state)) primeAgentCache(state);
+  return cacheAlive; // read-only by every caller; never mutated in place
 }
 
 function agentsWithinRadius(
@@ -173,7 +283,8 @@ function agentsWithinRadius(
 }
 
 function findAgentById(state: WorldState, id: string): Agent | undefined {
-  return state.agents.find((a) => a.id === id);
+  if (agentCacheIsStale(state)) primeAgentCache(state);
+  return cacheById.get(id);
 }
 
 function findOrCreateProximityRecord(
@@ -220,11 +331,31 @@ function stepTowardPassable(
 
 // Returns the significance percentile rank of an agent (0.0 = lowest, 1.0 = highest)
 function significancePercentile(agent: Agent, state: WorldState): number {
-  const alive = aliveAgents(state);
-  if (alive.length <= 1) return 1.0;
-  const sorted = [...alive].sort((a, b) => a.significanceScore - b.significanceScore);
-  const rank = sorted.findIndex((a) => a.id === agent.id);
-  return rank / (sorted.length - 1);
+  if (agentCacheIsStale(state)) primeAgentCache(state);
+  return cachePercentile.get(agent.id) ?? 1.0; // absent only if not alive; alive is checked by every caller
+}
+
+// The price of admission to the dark. A Conduit's dark pull finds the wounded —
+// it does not simply find the ill-tempered. Any ONE of the three is enough, and
+// all three are things the world does TO a soul over time, never a roll at
+// birth: they are what makes ignition emergent instead of scheduled.
+//
+//   grief    — they have lost someone ("spikes from loss events, fades slowly")
+//   violence — they carry a wound still fresh from a fight they lost
+//   hatred   — someone they know has become an enemy (trust gone actively hostile)
+function hasDarkWound(agent: Agent, state: WorldState): boolean {
+  if (agent.drives.grief >= CONDUIT_CONSTANTS.DARK_BOND_GRIEF_MIN) return true;
+
+  if (
+    agent.lastViolenceTick !== null &&
+    state.tick - agent.lastViolenceTick <= CONDUIT_CONSTANTS.DARK_BOND_VIOLENCE_RECENCY_TICKS
+  ) {
+    return true;
+  }
+
+  return agent.relationships.some(
+    (rel) => rel.trust <= CONDUIT_CONSTANTS.DARK_BOND_HATRED_TRUST,
+  );
 }
 
 // ============================================================
@@ -531,6 +662,17 @@ function checkBondEligibility(
   for (const rec of conduit.agentProximityHistory) {
     const agent = findAgentById(state, rec.agentId);
     if (agent === undefined || !agent.alive) continue;
+    // A soul the Conduits have already claimed is not on offer to the rest of
+    // them. The bond is one-to-one on both sides (Agent.conduitId and
+    // ConduitBeing.bondedAgentId are both singular) — but only the Conduit side
+    // was ever enforced, at the top of this function. With 75 Conduits hunting
+    // the ~10-15 agents who clear these gates, every unbonded Conduit piled onto
+    // whoever was already bonded: one soul absorbed dozens of bonds, each firing
+    // a fresh "major narrative event", each stacking another significance
+    // multiplier, and each feeding the Source's bonded-presence reading until it
+    // pinned to an extreme. Measured on seed 1: 225 bond events across just 2-3
+    // distinct bonded agents.
+    if (agent.conduitId !== null) continue;
 
     // ---- Light-condition components (shared by "fully eligible" and "candidate") ----
     const meetsLightFearSpikes = rec.fearSpikes <= lightFearSpikesMax;
@@ -545,13 +687,9 @@ function checkBondEligibility(
       percentile = significancePercentile(agent, state);
       meetsLightSignificance = percentile >= CONDUIT_CONSTANTS.LIGHT_BOND_SIGNIFICANCE_PERCENTILE;
       if (meetsLightSignificance) {
-        // Chronicle page count check — agent must have been noticed by the story
-        const pagesMentioned = state.chroniclePages.filter((p) =>
-          p.threads.some((t) => t.primaryAgentId === agent.id) ||
-          p.significantEvents.some((eid) =>
-            state.eventLog.find((e) => e.id === eid)?.involvedAgents.includes(agent.id),
-          ),
-        ).length;
+        // Chronicle page count check — agent must have been noticed by the story.
+        // Folded once per tick in primeAgentCache(); same count, same semantics.
+        const pagesMentioned = cachePagesMentioned.get(agent.id) ?? 0;
         meetsLightChronicle = pagesMentioned >= CONDUIT_CONSTANTS.LIGHT_BOND_CHRONICLE_PAGES_MIN;
       }
     }
@@ -573,11 +711,19 @@ function checkBondEligibility(
     }
 
     // ---- Dark eligibility ----
+    // Note the wound. Light has always demanded that the world have HAPPENED to
+    // you — you must be in the top fifth by significance and have been written
+    // about three times, neither of which a founder can step off the boat with.
+    // Dark demanded nothing but a personality roll and a ten-tick loiter, both
+    // available on day 1, which is why the only thing standing between the world
+    // and a day-11 dark bond was a hard calendar floor (CONDUIT_BOND_MIN_TICK).
+    // Now darkness is earned too: it takes a soul the world has already hurt.
     const isDarkEligible =
       rec.totalTicks >= darkProximityTicksRequired &&
       rec.fearSpikes <= darkFearSpikesMax &&
       agent.traits.aggression >= CONDUIT_CONSTANTS.DARK_BOND_AGGRESSION_MIN &&
-      agent.traits.nobility <= CONDUIT_CONSTANTS.DARK_BOND_NOBILITY_MAX;
+      agent.traits.nobility <= CONDUIT_CONSTANTS.DARK_BOND_NOBILITY_MAX &&
+      hasDarkWound(agent, state);
 
     if (isDarkEligible && !isLightCandidate) {
       if (
