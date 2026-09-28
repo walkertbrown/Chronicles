@@ -292,7 +292,7 @@ function updateChronicleThreads(state: WorldState): void {
 
 export interface DeathRecord {
   agentId: string;
-  cause: 'starvation' | 'age' | 'illness' | 'animal' | 'violence';
+  cause: 'starvation' | 'age' | 'childhood' | 'illness' | 'animal' | 'violence';
 }
 
 export function detectDeaths(state: WorldState): DeathRecord[] {

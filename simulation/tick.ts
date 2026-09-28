@@ -17,6 +17,7 @@ import {
   snapshotTraits,
 } from './agents/traits.js';
 import { detectDeaths, getTopAgentsBySignificance, tickSignificance } from './agents/significance.js';
+import { rollNaturalDeaths } from './agents/mortality.js';
 import { tickPredatorThreat } from './agents/predators.js';
 import { createConduits, tickAllConduits } from './companions/being.js';
 import { tickSource } from './source/source.js';
@@ -369,7 +370,7 @@ export function tick(state: WorldState, rng: () => number): TickSummary {
     }
   }
 
-  const deaths = detectDeaths(state);
+  const deaths = [...detectDeaths(state), ...rollNaturalDeaths(state, rng)];
   for (const death of deaths) {
     const agent = findAgent(state, death.agentId);
     if (agent === undefined || !agent.alive) continue;

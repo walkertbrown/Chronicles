@@ -295,6 +295,9 @@ export interface Agent {
     fatherName: string
     conceivedTick: number
   } | null                           // null when not pregnant; set at conception, cleared at delivery
+  // A mother cannot conceive again until this tick: set at delivery to one to
+  // one-and-a-half world years out (nursing and recovery). Null if she has never delivered.
+  fertileAfterTick: number | null
 
   // Present only while this agent is mid-trek relocating to a new hamlet (see
   // simulation/agents/migration.ts) — absent/null for everyone else, the same

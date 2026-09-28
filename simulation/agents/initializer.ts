@@ -756,6 +756,7 @@ export function initializeAgents(
       deathDay: null,
       deathCause: null,
       pregnancy: null,
+      fertileAfterTick: null,
     };
   });
 

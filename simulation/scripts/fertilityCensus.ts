@@ -7,8 +7,8 @@
 // prints how many women survive each step, so the binding constraint is visible
 // instead of inferred.
 //
-// Pure observation — changes no sim behaviour, and depends on nothing added by
-// the childhood fix, so the identical file runs on both trees.
+// Pure observation — changes no sim behaviour. The preg/rest columns count
+// women who are pregnant or resting after a birth (fertileAfterTick).
 
 import seedrandom from 'seedrandom';
 import type { Agent, WorldState } from '@shared/types.js';
@@ -17,8 +17,7 @@ import { TICKS_PER_DAY } from '../agents/drives.js';
 import { stripFantasy } from '../harness/fantasyStrip.js';
 import { silenceConsole, restoreConsole } from '../harness/consoleSilence.js';
 
-// Mirrors simulation/agents/births.ts. Duplicated (not imported) so this file
-// is byte-identical on both trees.
+// Mirrors simulation/agents/births.ts.
 const MIN_AGE = 16;
 const MAX_FEMALE_AGE = 45;
 const MAX_MALE_AGE = 60;
@@ -42,7 +41,7 @@ function dist(a: Agent, b: Agent): number {
 type Row = {
   year: number; pop: number; women: number; fertileAge: number;
   paired: number; livingMate: number; fertileMate: number;
-  nearby: number; longing: number; fed: number;
+  nearby: number; longing: number; fed: number; pregnant: number; resting: number;
   births: number; deaths: number; unpairedFertileW: number; unpairedFertileM: number;
 };
 const rows: Row[] = [];
@@ -59,6 +58,8 @@ function census(year: number): Row {
   const fertileAge = women.filter((a) => a.age >= MIN_AGE && a.age <= MAX_FEMALE_AGE);
 
   let paired = 0, livingMate = 0, fertileMate = 0, nearby = 0, longing = 0, fed = 0;
+  const pregnant = fertileAge.filter((w) => w.pregnancy !== null).length;
+  const resting = fertileAge.filter((w) => w.pregnancy === null && w.fertileAfterTick !== null && state.tick < w.fertileAfterTick).length;
   for (const w of fertileAge) {
     const mateRel = w.relationships.find((r) => String(r.bond).toLowerCase() === 'pair');
     if (mateRel === undefined) continue;
@@ -84,7 +85,7 @@ function census(year: number): Row {
 
   return {
     year, pop: living.length, women: women.length, fertileAge: fertileAge.length,
-    paired, livingMate, fertileMate, nearby, longing, fed,
+    paired, livingMate, fertileMate, nearby, longing, fed, pregnant, resting,
     births: yearBirths, deaths: yearDeaths, unpairedFertileW, unpairedFertileM,
   };
 }
@@ -113,12 +114,12 @@ try {
 console.log(`\n=== ${label}: seed ${seed}, ${days} days = ${days / DAYS_PER_YEAR} world years ===`);
 console.log('The funnel, at the last tick of each world year. Every column is a');
 console.log('count of WOMEN, each one a subset of the column to its left.\n');
-const hdr = ['yr', 'pop', 'birth', 'death', 'women', '16-45', 'paired', 'mate', 'fertM', 'near', 'longs', 'FED', 'freeW', 'freeM'];
+const hdr = ['yr', 'pop', 'birth', 'death', 'women', '16-45', 'paired', 'mate', 'fertM', 'near', 'longs', 'FED', 'preg', 'rest', 'freeW', 'freeM'];
 console.log(hdr.map((h) => h.padStart(6)).join(''));
 for (const r of rows) {
   console.log([
     r.year, r.pop, r.births, r.deaths, r.women, r.fertileAge,
-    r.paired, r.livingMate, r.fertileMate, r.nearby, r.longing, r.fed,
+    r.paired, r.livingMate, r.fertileMate, r.nearby, r.longing, r.fed, r.pregnant, r.resting,
     r.unpairedFertileW, r.unpairedFertileM,
   ].map((v) => String(v).padStart(6)).join(''));
 }
