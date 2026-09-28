@@ -281,6 +281,15 @@ export interface Agent {
   animalAttackTick: number | null    // tick of last animal attack; null if never attacked
   lastViolenceTick: number | null    // tick of last wound taken in conflict; null if never wounded
   lastAttackerId: string | null      // id of the agent who last wounded this agent; null if never wounded
+
+  // How this agent died, written once at the moment of death. These exist
+  // because the /deaths endpoint used to recover both by searching the event
+  // log, which tick.ts truncates to the last 500 entries — so every death
+  // older than that reported "Cause unknown" on the CURRENT world day. Twelve
+  // of the live world's fifteen dead all claimed to have died today.
+  // Null on the living, and on anyone who died before this field existed.
+  deathDay: number | null            // world day this agent died; null while alive
+  deathCause: string | null          // the death event's own sentence; null while alive
   pregnancy: {
     fatherId: string
     fatherName: string

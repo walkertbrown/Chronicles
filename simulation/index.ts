@@ -10,6 +10,7 @@ import { generateChronicle, shouldGenerateChronicle, ensurePrologueSeeded } from
 import { generateSummary, shouldGenerateSummary } from './summary/generator.js';
 import { startServer } from './server.js';
 import { writeCheckpoint, writeAgentPositions, loadCheckpoint } from './firebase.js';
+import { dissolveUnderageMateBonds, dissolveBondsToTheDead } from './agents/relationships.js';
 import { runAudienceVoteTick } from './audience/voteConsumer.js';
 
 const WORLD_ID = 'world_sample_01';
@@ -113,6 +114,31 @@ async function main(): Promise<void> {
         drv.wanderlust = 0.05;
       }
     }
+    // ONE-TIME BOND MIGRATION: pair bonds used to be promoted on trust and
+    // interaction count alone, with no age gate, so worlds saved before the
+    // maturity change hold mating bonds between children (two six-year-olds)
+    // and between an adult and a child. A pair bond is exclusive, so each of
+    // those locked two people out of reproduction permanently — the live world
+    // had six such bonds out of seven and had grown by three people in
+    // thirteen years. Idempotent: re-runs find nothing.
+    const dissolvedBonds = dissolveUnderageMateBonds(state);
+    if (dissolvedBonds > 0) {
+      console.log(
+        `Bond migration: dissolved ${dissolvedBonds} underage mating bond(s) carried in from the checkpoint.`,
+      );
+    }
+
+    // Same repair for the bereaved. Death never released the survivor's mate
+    // bond, and exclusivity does not check whether a partner is still alive, so
+    // every widow and widower in the checkpoint has been barred from bonding
+    // again since the day they were left. Idempotent: re-runs find nothing.
+    const dissolvedWidowed = dissolveBondsToTheDead(state);
+    if (dissolvedWidowed > 0) {
+      console.log(
+        `Bond migration: released ${dissolvedWidowed} bond(s) to the dead, freeing the bereaved to pair again.`,
+      );
+    }
+
     // The generator now seeds a few treeline watchers near the landing, but this
     // world was generated before that — draw a handful of Conduits down to the
     // settlement's edge so the luminous creatures are present from the start.

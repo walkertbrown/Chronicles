@@ -2,7 +2,7 @@
 // Main simulation loop — one tick orchestrates every subsystem.
 
 import type { Agent, WorldState } from '@shared/types.js';
-import { BondType, EventType, Season, Terrain } from '@shared/types.js';
+import { EventType, Season, Terrain } from '@shared/types.js';
 import { tickBirths } from './agents/births.js';
 import { TICKS_PER_DAY, TICKS_PER_YEAR, tickAgentAge, tickAgentDrives } from './agents/drives.js';
 import { executeAgentAction } from './agents/actions.js';
@@ -10,7 +10,7 @@ import { checkScatteredArtifactDiscovery } from './agents/artifactDiscovery.js';
 import { checkInfection, tickIllness } from './agents/illness.js';
 import { initializeAgents } from './agents/initializer.js';
 import { OutcomeType, type TickOutcome } from './agents/outcomes.js';
-import { applyRelationshipOutcome } from './agents/relationships.js';
+import { applyRelationshipOutcome, releaseMateBondOnDeath } from './agents/relationships.js';
 import {
   applyTraitOutcome,
   getTraitThresholdCrossings,
@@ -188,10 +188,10 @@ function applyDeathRipples(state: WorldState, deadAgent: Agent): void {
       agent.drives.grief = clamp01(agent.drives.grief + NEAR_DEATH_GRIEF_SPIKE);
     }
 
-    const pairBond = agent.relationships.find(
-      (rel) => rel.agentId === deadAgent.id && rel.bond === BondType.Pair,
-    );
-    if (pairBond !== undefined) {
+    // Grieve, then let go. releaseMateBondOnDeath lifts the exclusive claim so
+    // the survivor can take another mate one day; without it the bond sat there
+    // as Pair forever and quietly barred them for life. See relationships.ts.
+    if (releaseMateBondOnDeath(agent, deadAgent.id)) {
       agent.drives.grief = clamp01(agent.drives.grief + BONDED_GRIEF_SPIKE);
     }
   }

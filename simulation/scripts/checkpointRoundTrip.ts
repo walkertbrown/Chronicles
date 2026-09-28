@@ -72,6 +72,8 @@ function makeFakeAgent(overrides: Partial<Agent> = {}): Agent {
     animalAttackTick: null,
     lastViolenceTick: null,
     lastAttackerId: null,
+    deathDay: null,
+    deathCause: null,
     pregnancy: null,
   };
   return { ...base, ...overrides };
@@ -240,6 +242,31 @@ assertEqual(
   oldCheckpointShape.lastAuthoredVoteCycleId,
   null,
 );
+
+// ---- Case 5: death record (deathDay, deathCause). serializeAgentForCheckpoint
+// is an explicit field allow-list, so a field missing from it is silently
+// dropped on EVERY checkpoint write — the agent stays dead but forgets when and
+// why, and /deaths then has to guess. That guessing was a live reporting bug
+// (deaths showed as "today, cause unknown" once the event aged out of the
+// capped event log), which is what these fields exist to end. ----
+const deadAgent = makeFakeAgent({
+  id: 'agent_9',
+  alive: false,
+  deathDay: 274,
+  deathCause: 'Killed by a cave lion at the northern treeline.',
+});
+const restoredDead = roundTripThroughBlob(serializeAgentForCheckpoint(deadAgent));
+assertEqual('dead agent: deathDay survives round trip', restoredDead.deathDay, 274);
+assertEqual(
+  'dead agent: deathCause survives round trip',
+  restoredDead.deathCause,
+  'Killed by a cave lion at the northern treeline.',
+);
+
+const livingAgent = makeFakeAgent({ id: 'agent_10' });
+const restoredLiving = roundTripThroughBlob(serializeAgentForCheckpoint(livingAgent));
+assertEqual('living agent: deathDay is explicitly null after round trip', restoredLiving.deathDay, null);
+assertEqual('living agent: deathCause is explicitly null after round trip', restoredLiving.deathCause, null);
 
 console.log(failures === 0 ? '\nAll checkpoint round-trip checks passed.' : `\n${failures} checkpoint round-trip check(s) FAILED.`);
 process.exit(failures === 0 ? 0 : 1);

@@ -6,7 +6,9 @@ import { BondType, EventType, ItemType, Season, StructureType, Terrain } from '@
 import { fatigueModifier } from './drives.js';
 import { isSick, illnessSeverity, illnessSkillMultiplier, checkWoundInfection } from './illness.js';
 import { OutcomeType, type TickOutcome } from './outcomes.js';
-import { getRelationship, socialRestorationValue } from './relationships.js';
+import { getRelationship, socialRestorationValue, couldBecomeMates } from './relationships.js';
+import { isAdult, canDoAdultLabour, lifeStage, homeLeash } from './maturity.js';
+import { BIRTH_PROXIMITY_RADIUS } from './births.js';
 import { wanderlustExpresses, actionVenture, agentIsDwelling } from './exploration.js';
 import {
   hasActiveMigration,
@@ -490,6 +492,33 @@ function findLongingTarget(agent: Agent, state: WorldState): Agent | undefined {
     if (partner !== undefined) return partner;
   }
 
+  return findCourtshipTarget(agent, state) ?? findMostTrusted(agent, state);
+}
+
+/**
+ * The person an unpaired adult's longing should actually walk toward: the
+ * most-trusted someone they could become mates with. Longing used to seek the
+ * most-trusted person of all, which is nearly always family — and same-family
+ * trust becomes a Kin bond, never a Pair. Across 30 world years no more than
+ * five of the fifteen founding women were ever paired at once; this is why.
+ */
+function findCourtshipTarget(agent: Agent, state: WorldState): Agent | undefined {
+  if (!isAdult(agent)) return undefined;
+  if (agent.relationships.some((rel) => rel.bond === BondType.Pair)) return undefined;
+  let best: Agent | undefined;
+  let bestTrust = -Infinity;
+  for (const other of aliveAgents(state)) {
+    if (!couldBecomeMates(agent, other)) continue;
+    const trust = getRelationship(agent, other.id)?.trust ?? 0;
+    if (trust > bestTrust) {
+      bestTrust = trust;
+      best = other;
+    }
+  }
+  return best;
+}
+
+function findMostTrusted(agent: Agent, state: WorldState): Agent | undefined {
   let best: Agent | undefined;
   let bestTrust = -Infinity;
   for (const other of aliveAgents(state)) {
@@ -502,6 +531,29 @@ function findLongingTarget(agent: Agent, state: WorldState): Agent | undefined {
   }
 
   return best;
+}
+
+/**
+ * This agent's living mate, but only when they are too far apart to conceive.
+ *
+ * BIRTH_PROXIMITY_RADIUS is the range within which a pair can have a child, so
+ * it is exactly the distance a pair bond has to close to mean anything. Past
+ * it, the bond is real and produces nothing.
+ */
+function findDistantMate(agent: Agent, state: WorldState): Agent | undefined {
+  const pairBond = agent.relationships.find((rel) => rel.bond === BondType.Pair);
+  if (pairBond === undefined) return undefined;
+
+  const partner = aliveAgents(state).find((a) => a.id === pairBond.agentId);
+  if (partner === undefined) return undefined;
+
+  const apart = manhattanDistance(
+    agent.position.x,
+    agent.position.y,
+    partner.position.x,
+    partner.position.y,
+  );
+  return apart > BIRTH_PROXIMITY_RADIUS ? partner : undefined;
 }
 
 function findDistressedAgent(agent: Agent, state: WorldState): Agent | undefined {
@@ -619,6 +671,10 @@ function shouldNobilityHelp(agent: Agent, state: WorldState): boolean {
 }
 
 function shouldConflict(agent: Agent, state: WorldState, rng: () => number): boolean {
+  // Children scuffle; they do not enter the conflict system, which wounds and
+  // can kill. A three-year-old was previously eligible to beat an adult to
+  // death on a shared tile.
+  if (!isAdult(agent)) return false;
   if (agent.traits.aggression <= 0.5) return false;
   const others = agentsOnSameTile(agent, state);
   if (others.length === 0) return false;
@@ -1884,6 +1940,126 @@ function describeOutcome(outcome: TickOutcome, agent: Agent): string {
 // MAIN EXPORT
 // ============================================================
 
+// ============================================================
+// CHILDHOOD
+//
+// Everything above this line is the adult world: timber, hunting, shelter,
+// craft, long treks north, violence. None of it is a child's to do. Before
+// this branch existed a newborn dropped straight into that dispatch and the
+// live camp's status lines read "Caelith, age 0 — Carrying wood to the hall".
+//
+// A child still has to eat, or starvation kills them like anyone else, so the
+// hunger path stays open: they forage and drink close to the hearth, which is
+// what the leash below enforces. What they lose is adult labour, the treks,
+// mating and the conflict system.
+// ============================================================
+
+/** Underfoot at camp: play, watch the adults work, wear off the day. */
+function actionPlay(agent: Agent, state: WorldState, rng: () => number): TickOutcome {
+  // Company is the point of play, so it answers the social pull.
+  const nearby = agentsOnSameTile(agent, state);
+  if (nearby.length > 0) {
+    agent.drives.socialNeed = Math.max(0, agent.drives.socialNeed - 0.06);
+  }
+  agent.drives.fatigue = Math.min(1, agent.drives.fatigue + 0.01);
+
+  // Drift a tile at random, but never off the leash — checked by the caller.
+  const adjacent = getAdjacentTiles(state.tiles, agent.position.x, agent.position.y)
+    .filter((t) => isPassable(t.terrain, state.vessel.beached));
+  if (adjacent.length > 0) {
+    const pick = adjacent[Math.floor(rng() * adjacent.length)];
+    if (pick !== undefined) moveAgent(agent, pick.x, pick.y, state);
+  }
+
+  return makeOutcome(agent, { type: OutcomeType.Wandered, success: true });
+}
+
+function executeChildAction(
+  agent: Agent,
+  state: WorldState,
+  outcomes: TickOutcome[],
+  rng: () => number,
+): void {
+  const stage = lifeStage(agent.age);
+  const home = getHome(agent);
+  const leash = homeLeash(agent);
+  const fromHome = manhattanDistance(agent.position.x, agent.position.y, home.x, home.y);
+
+  // Fear overrides everything — a frightened child runs, at any age.
+  if (agent.drives.fear >= 0.6) {
+    const o = actionFlee(agent, state);
+    outcomes.push(o);
+    agent.currentAction = stage === 'infant' ? 'Crying, clinging on' : 'Running from something';
+    return;
+  }
+
+  const drive = getDominantDrive(agent);
+
+  // Off the leash: back to the hearth. This is what keeps the young with the
+  // band instead of scattered across a thousand tiles.
+  //
+  // Hunger is the one exception, and it has to be: the leash is 4 tiles for a
+  // child and 1 for an infant, so if the nearest food sits outside that, a
+  // hungry child would step toward it, be hauled back the next tick, step out
+  // again, and oscillate on the spot until it starved. A hungry child ranges as
+  // far as it must. Nothing here feeds the young — there is no food store and no
+  // provisioning between agents — so closing this path would kill them, and
+  // starvation does kill (see starvationUrgency in drives.ts).
+  if (fromHome > leash && drive !== 'hunger') {
+    stepAgentToward(agent, Math.round(home.x), Math.round(home.y), state);
+    outcomes.push(makeOutcome(agent, { type: OutcomeType.Wandered, success: true }));
+    agent.currentAction = 'Trailing back to the hearth';
+    return;
+  }
+
+  // An infant is carried and fed at the hearth. It has no other business.
+  if (stage === 'infant') {
+    let o: TickOutcome;
+    if (drive === 'hunger') {
+      o = shouldEatNotDrink(agent, state)
+        ? chooseForage(agent, state, rng)
+        : actionDrinkWater(agent, state);
+      agent.currentAction = 'Being fed at the hearth';
+    } else {
+      o = actionRest(agent, state);
+      agent.currentAction = 'Asleep by the fire';
+    }
+    outcomes.push(o);
+    return;
+  }
+
+  let outcome: TickOutcome;
+  switch (drive) {
+    case 'hunger':
+      outcome = shouldEatNotDrink(agent, state)
+        ? chooseForage(agent, state, rng)
+        : actionDrinkWater(agent, state);
+      break;
+    case 'fatigue':
+      outcome = actionRest(agent, state);
+      break;
+    case 'fear':
+      outcome = actionFlee(agent, state);
+      break;
+    // Longing in a child is not a longing for a mate — it reads as wanting
+    // company, and play answers it. The mating path is closed by age anyway,
+    // both here and at bond promotion in relationships.ts.
+    case 'socialNeed':
+    case 'longing':
+    case 'grief':
+    case 'wanderlust':
+    default:
+      outcome = actionPlay(agent, state, rng);
+      break;
+  }
+
+  outcomes.push(outcome);
+  agent.currentAction =
+    outcome.type === OutcomeType.Wandered
+      ? (stage === 'child' ? 'Playing near the camp' : 'Idling at the edge of camp')
+      : describeOutcome(outcome, agent);
+}
+
 export function executeAgentAction(
   agent: Agent,
   state: WorldState,
@@ -1975,6 +2151,22 @@ export function executeAgentAction(
     }
     outcomes.push(seaOutcome);
     agent.currentAction = describeOutcome(seaOutcome, agent);
+    return;
+  }
+
+  // Early childhood. Sits above every adult path below — the pilgrimage, family
+  // migration and the ruin expeditions are all grown-up business. See the
+  // CHILDHOOD block above.
+  //
+  // The gate is canDoAdultLabour, NOT isChild: adolescents (10-15) DO work the
+  // camp alongside the adults, they are just bad at it — skillLearningRate caps
+  // their gain at 0.6, so a fifteen-year-old is a useful pair of hands and not
+  // yet a master builder. Only infants and small children (under 10) are
+  // diverted to play. Adolescents still cannot take a mate (mayBondAsMates
+  // gates on isAdult, age 16) and still do not start fights (shouldConflict
+  // likewise) — they labour, they do not court or quarrel.
+  if (!canDoAdultLabour(agent)) {
+    executeChildAction(agent, state, outcomes, rng);
     return;
   }
 
@@ -2080,6 +2272,25 @@ export function executeAgentAction(
         break;
       }
       case 'longing': {
+        // A mate you cannot reach outranks the camp. This order used to be the
+        // other way round, and it quietly sterilised the world: an agent whose
+        // mate was across the map would find work at their own hearth every
+        // tick, forever, and never close the distance. In the live world every
+        // bonded pair had drifted apart — one by 756 tiles — while longing sat
+        // pinned at 1.00 on both of them and no child was conceived for years.
+        // Camp work is a fine answer to loneliness; it is not an answer to this.
+        const mate = findDistantMate(agent, state);
+        if (mate !== undefined) {
+          outcome = actionMoveTowardSocial(agent, state, mate);
+          break;
+        }
+        // Same reasoning for the unpaired: loneliness answered with wood-hauling
+        // never finds anyone. Court first when there is someone to court.
+        const suitor = findCourtshipTarget(agent, state);
+        if (suitor !== undefined) {
+          outcome = actionMoveTowardSocial(agent, state, suitor);
+          break;
+        }
         const camp = tryCampWork(agent, state);
         if (camp !== null) {
           outcome = camp;

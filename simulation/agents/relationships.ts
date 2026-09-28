@@ -1,9 +1,10 @@
 // simulation/agents/relationships.ts
 // Creates, reads, and updates relationship state between agent pairs.
 
-import type { Agent, Relationship } from '@shared/types.js';
+import type { Agent, Relationship, WorldState } from '@shared/types.js';
 import { BondType } from '@shared/types.js';
 import { OutcomeType, type TickOutcome } from './outcomes.js';
+import { mayBondAsMates } from './maturity.js';
 
 // ============================================================
 // CONSTANTS
@@ -79,7 +80,12 @@ function resolveBondType(
 
   if (
     trust >= RELATIONSHIP_CONSTANTS.PAIR_BOND_THRESHOLD &&
-    interactionCount >= RELATIONSHIP_CONSTANTS.PAIR_BOND_MIN_INTERACTIONS
+    interactionCount >= RELATIONSHIP_CONSTANTS.PAIR_BOND_MIN_INTERACTIONS &&
+    // Both must be grown. Trust and familiarity alone used to promote any two
+    // agents to mates, which bonded six-year-olds to each other and a
+    // fifty-four-year-old to a ten-year-old. Because the bond below is
+    // exclusive, each of those removed two people from the breeding population.
+    mayBondAsMates(agentA, agentB)
   ) {
     // One-mate exclusivity: neither agent may already hold a Pair bond with a
     // DIFFERENT partner. If either does, we fall through rather than promote —
@@ -101,6 +107,94 @@ function resolveBondType(
   }
 
   return bond;
+}
+
+/**
+ * Dissolve every mating bond that involves someone too young, on both sides.
+ *
+ * The age gate in resolveBondType stops NEW underage pairings, but it only
+ * fires when the two agents interact again — and the pairs already written
+ * into the live checkpoint had drifted as far as 142 tiles apart, so they may
+ * never meet to have the bond re-evaluated. Meanwhile the bond goes on
+ * consuming both partners' one-mate exclusivity slot and keeping two people
+ * out of the breeding population for good.
+ *
+ * Dropping to None is the same outcome resolveBondType produces for a pair
+ * that no longer qualifies, so nothing downstream sees a novel state. Trust
+ * and interaction history are left alone: these people still know each other.
+ *
+ * Idempotent — a second run finds nothing to do.
+ */
+export function dissolveUnderageMateBonds(state: WorldState): number {
+  const byId = new Map(state.agents.map((agent) => [agent.id, agent]));
+  let dissolved = 0;
+
+  for (const agent of state.agents) {
+    for (const rel of agent.relationships) {
+      if (rel.bond !== BondType.Pair) continue;
+      const partner = byId.get(rel.agentId);
+      if (partner === undefined) continue;
+      if (mayBondAsMates(agent, partner)) continue;
+      rel.bond = BondType.None;
+      dissolved += 1;
+    }
+  }
+
+  return dissolved;
+}
+
+/**
+ * Releases one survivor's mate bond when their partner dies.
+ *
+ * One-mate exclusivity (resolveBondType) asks only whether a Pair bond EXISTS,
+ * never whether the partner is still breathing — so a widow or widower kept the
+ * bond forever and could never take another mate. Nothing cleared it: death set
+ * alive = false and applyDeathRipples added grief, but the relationship record
+ * stayed Pair for the rest of the survivor's life.
+ *
+ * In a camp with only a handful of women of child-bearing age, one bereavement
+ * permanently removed one of them from the breeding population. That is a bug,
+ * not mourning: grief is a drive, and it already spikes and decays on its own.
+ *
+ * Trust and interaction history are left intact — they loved this person, and
+ * the chronicle still has the death. Only the exclusive claim is lifted, and it
+ * is lifted at once: a mourning period would need state we do not keep.
+ *
+ * Returns true if a bond was actually released.
+ */
+export function releaseMateBondOnDeath(survivor: Agent, deadAgentId: string): boolean {
+  const rel = survivor.relationships.find(
+    (r) => r.agentId === deadAgentId && r.bond === BondType.Pair,
+  );
+  if (rel === undefined) return false;
+  rel.bond = BondType.None;
+  return true;
+}
+
+/**
+ * One-time repair for checkpoints written before releaseMateBondOnDeath existed,
+ * where survivors are still holding Pair bonds to the long dead. Same shape and
+ * same reasoning as dissolveUnderageMateBonds above.
+ *
+ * Idempotent — a second run finds nothing to do.
+ */
+export function dissolveBondsToTheDead(state: WorldState): number {
+  const byId = new Map(state.agents.map((agent) => [agent.id, agent]));
+  let dissolved = 0;
+
+  for (const agent of state.agents) {
+    if (!agent.alive) continue;
+    for (const rel of agent.relationships) {
+      if (rel.bond !== BondType.Pair) continue;
+      const partner = byId.get(rel.agentId);
+      if (partner === undefined) continue; // partner gone from the roster entirely
+      if (partner.alive) continue;
+      rel.bond = BondType.None;
+      dissolved += 1;
+    }
+  }
+
+  return dissolved;
 }
 
 function applyTrustDeltaOneWay(
@@ -252,4 +346,20 @@ export function socialRestorationValue(trust: number): number {
     RELATIONSHIP_CONSTANTS.SOCIAL_RESTORE_AT_ZERO_TRUST +
     trust * (RELATIONSHIP_CONSTANTS.SOCIAL_RESTORE_AT_MAX_TRUST - RELATIONSHIP_CONSTANTS.SOCIAL_RESTORE_AT_ZERO_TRUST)
   );
+}
+
+/**
+ * Could these two ever become mates under resolveBondType? Both grown, not of
+ * one family (same-family trust becomes Kin at 0.4, long before a Pair's 0.7),
+ * and neither already paired to someone else. Longing uses this to pick who to
+ * seek out — seeking anyone who fails it can only ever produce a Kin bond.
+ */
+export function couldBecomeMates(agentA: Agent, agentB: Agent): boolean {
+  if (agentA.id === agentB.id) return false;
+  if (!agentA.alive || !agentB.alive) return false;
+  if (!mayBondAsMates(agentA, agentB)) return false;
+  if (agentA.familyName === agentB.familyName) return false;
+  const pairedElsewhere = (a: Agent, other: Agent) =>
+    a.relationships.some((r) => r.bond === BondType.Pair && r.agentId !== other.id);
+  return !pairedElsewhere(agentA, agentB) && !pairedElsewhere(agentB, agentA);
 }

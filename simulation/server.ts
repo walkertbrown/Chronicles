@@ -245,8 +245,12 @@ function buildDeathsSnapshot(state: WorldState) {
         trust: rel.trust,
         bond: rel.bond,
       })),
-      deathCause: deathEvent?.description ?? 'Cause unknown',
-      dayOfDeath: deathEvent?.day ?? state.day,
+      // The agent's own record first; the event log is only a fallback for
+      // agents who died before deathDay/deathCause existed. dayOfDeath is
+      // null rather than state.day when genuinely unknown — reporting an old
+      // death as having happened today is worse than admitting we lost it.
+      deathCause: agent.deathCause ?? deathEvent?.description ?? 'Cause unknown',
+      dayOfDeath: agent.deathDay ?? deathEvent?.day ?? null,
       survivingFamily,
     };
   });

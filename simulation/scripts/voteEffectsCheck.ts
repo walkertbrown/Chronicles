@@ -104,6 +104,8 @@ function makeFakeAgent(overrides: Partial<Agent> = {}): Agent {
     animalAttackTick: null,
     lastViolenceTick: null,
     lastAttackerId: null,
+    deathDay: null,
+    deathCause: null,
     pregnancy: null,
   };
   return { ...base, ...overrides };
