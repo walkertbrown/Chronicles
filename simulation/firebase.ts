@@ -73,6 +73,13 @@ export function serializeAgentForCheckpoint(a: Agent) {
     animalAttackTick: a.animalAttackTick,
     lastViolenceTick: a.lastViolenceTick,
     lastAttackerId: a.lastAttackerId,
+    // How and when this agent died. Explicitly listed because this serializer
+    // is a field allow-list: a field missing here is silently dropped on every
+    // checkpoint, which is precisely the failure the migration comment below
+    // describes. Without these two, the death record would survive only until
+    // the next write.
+    deathDay: a.deathDay ?? null,
+    deathCause: a.deathCause ?? null,
     pregnancy: a.pregnancy ?? null,
     // Migration marker (agents/migration.ts) — present only on the handful of
     // agents mid-trek. Without this, a family mid-trek at the exact tick a
@@ -246,6 +253,15 @@ export async function loadCheckpoint(worldId: string): Promise<WorldState | null
       }
       if (!('pregnancy' in agent)) {
         (agent as { pregnancy: null }).pregnancy = null;
+      }
+      // Agents who died before the death record existed keep null here, and
+      // the /deaths endpoint falls back to the event log for them (and to
+      // "Cause unknown" once that has been truncated away).
+      if (!('deathDay' in agent)) {
+        (agent as { deathDay: null }).deathDay = null;
+      }
+      if (!('deathCause' in agent)) {
+        (agent as { deathCause: null }).deathCause = null;
       }
     }
     // fearSpikes on every Conduit's agentProximityHistory used to increment on

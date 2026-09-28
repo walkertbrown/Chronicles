@@ -237,6 +237,11 @@ export function logDeathEvent(
       break;
   }
 
+  // Stamped on the agent as well as logged. The event log is capped at 500
+  // entries, so it is not a durable record of anything; this is.
+  agent.deathDay = state.day;
+  agent.deathCause = description;
+
   return logEvent(
     state,
     EventType.Death,

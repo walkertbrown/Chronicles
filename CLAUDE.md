@@ -8,15 +8,18 @@ An LLM narrator writes chronicle pages from simulated events — the narrator dr
 
 - Docker on the home server "ServerMac" (Ubuntu 22.04): `ssh elizabethcorley@servermac.local`
   (user is in the docker group — no sudo needed; tailscale operator is set)
-- Container: `chronicles-sim`, image `chronicles-sim`, `--restart unless-stopped`
+- Container: `chronicles-sim`, `--restart unless-stopped`, running an explicitly TAGGED image
+  (see `docker inspect chronicles-sim --format '{{.Config.Image}}'`). Do NOT rely on
+  `chronicles-sim:latest` — as of 2026-09-28 it is a stale 2026-07-01 build from before PR #14,
+  and running it would silently roll the world back.
 - Port: host `127.0.0.1:3101` → container `3001` (host 3001 is TAKEN by another app — never bind it)
-- Exact run command:
+- Exact run command (`<tag>` = the image you just built):
   ```
   docker run -d --name chronicles-sim --restart unless-stopped \
     -p 127.0.0.1:3101:3001 \
     --env-file ~/chronicles/simulation/.env \
-    -v ~/chronicles/simulation/firebase-service-account.json:/app/simulation/firebase-service-account.json:ro \
-    chronicles-sim
+    -v ~/chronicles/simulation/firebase-service-account.json:/app/simulation/firebase-service-account.json \
+    chronicles-sim:<tag>
   ```
 - Env on the box (`~/chronicles/simulation/.env`): ANTHROPIC_API_KEY, GEMINI_API_KEY, RUN_MODE=production
 - Logs: `docker logs chronicles-sim`
@@ -29,11 +32,15 @@ An LLM narrator writes chronicle pages from simulated events — the narrator dr
 
 ## Deploying sim changes
 
-`~/chronicles` on the box is an **rsync copy** (no .git). From the Mac:
+`~/chronicles` on the box is a git clone of `github.com/walkertbrown/chronicles`, on `main`.
+Work in a branch or worktree elsewhere; the serving tree only ever fast-forwards.
 
-1. `rsync -az --delete --exclude node_modules --exclude dist --exclude .git --exclude web --exclude .next --exclude .DS_Store ~/living-world/ elizabethcorley@servermac.local:~/chronicles/`
-2. `ssh elizabethcorley@servermac.local 'docker build -t chronicles-sim ~/chronicles'`
-3. `docker rm -f chronicles-sim` then the run command above.
+1. Merge the PR on GitHub, then `git -C ~/chronicles pull --ff-only`.
+2. Back up the checkpoint doc first if the change migrates saved state (a resume-time repair is
+   a one-way edit to the live world).
+3. `docker build -t chronicles-sim:<new-tag> ~/chronicles` — a NEW tag; keep the old image for rollback.
+4. `docker rm -f chronicles-sim`, then the run command above with `<new-tag>`.
+   Rollback = the same two steps with the previous tag.
 
 The sim resumes automatically from the Firestore checkpoint on start.
 

@@ -252,6 +252,8 @@ export function spawnChild(
     animalAttackTick: null,
     lastViolenceTick: null,
     lastAttackerId: null,
+    deathDay: null,
+    deathCause: null,
     pregnancy: null,
   };
 

@@ -4,6 +4,7 @@
 import type { Agent, Skills, Traits } from '@shared/types.js';
 import { fatigueModifier } from './drives.js';
 import { OutcomeType, type TickOutcome } from './outcomes.js';
+import { skillLearningRate } from './maturity.js';
 
 // ============================================================
 // CONSTANTS
@@ -74,7 +75,11 @@ function applySkillDelta(
   skill: keyof Skills,
   magnitude: number,
 ): void {
-  agent.skills[skill] = clampSkill(agent.skills[skill] + scaledDelta(agent, outcome, magnitude));
+  // Scaled by life stage. A child watching an adult work does pick the craft
+  // up, but slowly — before this, practice counted the same at three as at
+  // thirty and the camp's six-year-olds had building and fire maxed at 1.0.
+  const delta = scaledDelta(agent, outcome, magnitude) * skillLearningRate(agent.age);
+  agent.skills[skill] = clampSkill(agent.skills[skill] + delta);
 }
 
 // ============================================================
