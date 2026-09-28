@@ -75,6 +75,7 @@ function makeFakeAgent(overrides: Partial<Agent> = {}): Agent {
     deathDay: null,
     deathCause: null,
     pregnancy: null,
+    fertileAfterTick: null,
   };
   return { ...base, ...overrides };
 }

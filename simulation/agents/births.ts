@@ -255,6 +255,7 @@ export function spawnChild(
     deathDay: null,
     deathCause: null,
     pregnancy: null,
+    fertileAfterTick: null,
   };
 
   state.agents.push(child);

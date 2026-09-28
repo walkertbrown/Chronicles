@@ -81,6 +81,7 @@ export function serializeAgentForCheckpoint(a: Agent) {
     deathDay: a.deathDay ?? null,
     deathCause: a.deathCause ?? null,
     pregnancy: a.pregnancy ?? null,
+    fertileAfterTick: a.fertileAfterTick ?? null,
     // Migration marker (agents/migration.ts) — present only on the handful of
     // agents mid-trek. Without this, a family mid-trek at the exact tick a
     // checkpoint is written would silently lose its migration state on the
@@ -253,6 +254,20 @@ export async function loadCheckpoint(worldId: string): Promise<WorldState | null
       }
       if (!('pregnancy' in agent)) {
         (agent as { pregnancy: null }).pregnancy = null;
+      }
+      // Birth spacing (fertileAfterTick) arrived after the live world had
+      // mothers with newborns. A mother whose youngest child is still age 0
+      // delivered within this world year, so give her a full year's rest from
+      // now; everyone else starts free.
+      if ((agent as Partial<Agent>).fertileAfterTick === undefined) {
+        const youngestAge = Math.min(
+          Infinity,
+          ...agent.lineage.children
+            .map((id) => state.agents.find((c) => c.id === id)?.age)
+            .filter((age): age is number => age !== undefined),
+        );
+        (agent as { fertileAfterTick: number | null }).fertileAfterTick =
+          agent.gender === 'female' && youngestAge === 0 ? state.tick + 1440 : null;
       }
       // Agents who died before the death record existed keep null here, and
       // the /deaths endpoint falls back to the event log for them (and to

@@ -211,7 +211,7 @@ export function getLastEventForAgent(
 export function logDeathEvent(
   state: WorldState,
   agent: Agent,
-  cause: 'starvation' | 'age' | 'illness' | 'animal' | 'violence',
+  cause: 'starvation' | 'age' | 'childhood' | 'illness' | 'animal' | 'violence',
   killerName?: string,
 ): SimEvent {
   const fullName = `${agent.name} ${agent.familyName}`;
@@ -234,6 +234,9 @@ export function logDeathEvent(
       break;
     case 'age':
       description = `${fullName} died. Age ${agent.age}. The body gave out.`;
+      break;
+    case 'childhood':
+      description = `${fullName} died in childhood. Age ${agent.age}.`;
       break;
   }
 

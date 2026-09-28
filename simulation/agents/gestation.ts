@@ -24,6 +24,13 @@ const GESTATION_TICKS = Math.round(0.75 * TICKS_PER_YEAR); // 1080
 
 const BIRTH_CHANCE_PER_DAY = 0.10;
 
+// Rest after a delivery before the mother can conceive again — nursing and
+// recovery. Without it a mother could conceive the day after giving birth, so
+// births came nearly every world year and the population compounded far faster
+// than any real one. Drawn per birth between one and one-and-a-half world years.
+const POSTPARTUM_MIN_TICKS = TICKS_PER_YEAR;
+const POSTPARTUM_EXTRA_TICKS = Math.round(0.5 * TICKS_PER_YEAR);
+
 // ============================================================
 // CONCEPTION PASS
 // Called once per day from tickBirths. Skips mothers already pregnant.
@@ -40,6 +47,9 @@ export function tickConception(state: WorldState, rng: () => number): void {
 
     // Mother already pregnant — cannot double-conceive
     if (mother.pregnancy !== null) continue;
+
+    // Still resting after her last delivery
+    if (mother.fertileAfterTick !== null && state.tick < mother.fertileAfterTick) continue;
 
     if (!isEligiblePair(mother, father)) continue;
     if (rng() >= BIRTH_CHANCE_PER_DAY) continue;
@@ -85,7 +95,9 @@ export function tickDeliveries(state: WorldState, rng: () => number): void {
 
     spawnChild(state, mother, preg.fatherId, preg.fatherName, fatherObj, rng);
 
-    // Delivery complete — clear the pregnancy marker
+    // Delivery complete — clear the pregnancy marker and start her rest
     mother.pregnancy = null;
+    mother.fertileAfterTick =
+      state.tick + POSTPARTUM_MIN_TICKS + Math.round(rng() * POSTPARTUM_EXTRA_TICKS);
   }
 }
